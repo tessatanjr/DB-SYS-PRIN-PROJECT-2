@@ -17,51 +17,39 @@ def connect_db(config=DB_CONFIG):
     """
     try:
         conn = psycopg2.connect(**config)
+        conn.autocommit = True
         print("Connected to database successfully.")
         return conn
     except Exception as e:
         print(f"Failed to connect to database: {e}")
         return None
 
-
 def get_qep(conn, sql_query):
     """
-    Retrieves the Query Execution Plan (QEP) for a given SQL query.
-    Returns a dictionary containing:
-    - 'json': the QEP as a parsed JSON object (for programmatic processing)
-    - 'json_verbose': the QEP as a parsed JSON object with extra details
-    - 'text': the QEP as a text string (for display purposes)
-    - 'text_verbose': the QEP as a text string with extra details
+    Retrieves the Query Execution Plan (QEP).
+
+    Returns:
+    {
+        "json": parsed JSON plan,
+        "text": readable text plan
+    }
     """
+
     try:
         with conn.cursor() as cur:
-            # Get JSON format for programmatic processing
-            cur.execute(f"EXPLAIN (FORMAT JSON, ANALYZE FALSE, COSTS TRUE) {sql_query}")
+            cur.execute(f"EXPLAIN (FORMAT JSON, VERBOSE, SETTINGS) {sql_query}")
             qep_json = cur.fetchone()[0]
 
-            # Get JSON format with verbose and settings info
-            cur.execute(f"EXPLAIN (FORMAT JSON, ANALYZE FALSE, VERBOSE TRUE, COSTS TRUE, SETTINGS TRUE) {sql_query}")
-            qep_json_verbose = cur.fetchone()[0]
-
-            # Get TEXT format for display
-            cur.execute(f"EXPLAIN (FORMAT TEXT, ANALYZE FALSE, COSTS TRUE) {sql_query}")
-            qep_text_rows = cur.fetchall()
-            qep_text = "\n".join(row[0] for row in qep_text_rows)
-
-            # Get TEXT format with verbose and settings info
-            cur.execute(f"EXPLAIN (FORMAT TEXT, ANALYZE FALSE, VERBOSE TRUE, COSTS TRUE, SETTINGS TRUE) {sql_query}")
-            qep_text_verbose_rows = cur.fetchall()
-            qep_text_verbose = "\n".join(row[0] for row in qep_text_verbose_rows)
+            cur.execute(f"EXPLAIN (FORMAT TEXT, VERBOSE, SETTINGS) {sql_query}")
+            qep_text = "\n".join(row[0] for row in cur.fetchall())
 
             return {
                 "json": qep_json,
-                "json_verbose": qep_json_verbose,
-                "text": qep_text,
-                "text_verbose": qep_text_verbose
+                "text": qep_text
             }
+
     except Exception as e:
         print(f"Failed to retrieve QEP: {e}")
-        conn.rollback()
         return None
 
 
@@ -81,17 +69,16 @@ def get_aqp(conn, sql_query, operators_to_disable):
                 cur.execute(f"SET {op} = off;")
             
             # Get the alternative plan
-            cur.execute(f"EXPLAIN (FORMAT JSON, ANALYZE FALSE) {sql_query}")
+            cur.execute(f"EXPLAIN (FORMAT JSON, VERBOSE, SETTINGS) {sql_query}")
             aqp = cur.fetchone()[0]
             
             # Re-enable all operators (reset to default)
-            for op in operators_to_disable:
-                cur.execute(f"SET {op} = on;")
+            cur.execute("RESET ALL")
             
             return aqp
+        
     except Exception as e:
         print(f"Failed to retrieve AQP: {e}")
-        conn.rollback()
         return None
 
 
