@@ -4,7 +4,7 @@ import json
 # Database connection configuration
 DB_CONFIG = {
     "host": "localhost",
-    "port": 5432,
+    "port": 5433,
     "dbname": "TPC-H",
     "user": "postgres",
     "password": "qwerty" 

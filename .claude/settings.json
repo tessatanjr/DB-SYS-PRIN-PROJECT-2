@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from annotation import *; from interface import *; print\\('All imports OK'\\)\")",
+      "Bash(pip install:*)",
+      "Bash(python -m pip install -r requirements.txt)",
+      "Bash(python -c \"from interface import *; print\\('All imports OK'\\)\")",
+      "Bash(python -c \"from interface import *; print\\('OK'\\)\")"
+    ]
+  }
+}
