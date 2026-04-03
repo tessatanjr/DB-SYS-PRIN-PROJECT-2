@@ -5,7 +5,11 @@
       "Bash(pip install:*)",
       "Bash(python -m pip install -r requirements.txt)",
       "Bash(python -c \"from interface import *; print\\('All imports OK'\\)\")",
-      "Bash(python -c \"from interface import *; print\\('OK'\\)\")"
+      "Bash(python -c \"from interface import *; print\\('OK'\\)\")",
+      "Bash(python -c \"import openai; print\\(openai.__version__\\)\")",
+      "Bash(python -m pip install python-dotenv -q)",
+      "Bash(python -c \"from annotation import *; print\\('OK'\\)\")",
+      "Bash(python -m pip install PySide6 -q)"
     ]
   }
 }

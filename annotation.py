@@ -1,5 +1,158 @@
+import os
 import re
+import json
+from openai import AzureOpenAI
 from preprocessing import connect_db, get_qep, get_all_aqps, extract_cost, close_db
+
+
+# ---------------------------------------------------------------------------
+# 0. Azure OpenAI LLM Client
+# ---------------------------------------------------------------------------
+
+# Module-level LLM config — set via set_llm_config() from the GUI
+_llm_config = {
+    "endpoint": "https://sc3020-db.openai.azure.com/",
+    "api_key": "",
+    "deployment": "gpt-4.1-nano",
+}
+
+
+def set_llm_config(endpoint, api_key, deployment):
+    """Update LLM connection settings at runtime."""
+    _llm_config["endpoint"] = endpoint
+    _llm_config["api_key"] = api_key
+    _llm_config["deployment"] = deployment
+
+
+def _get_llm_client():
+    """
+    Returns an AzureOpenAI client using the current config, or (None, None).
+    """
+    endpoint = _llm_config["endpoint"]
+    api_key = _llm_config["api_key"]
+    deployment = _llm_config["deployment"]
+
+    if not all([endpoint, api_key, deployment]):
+        return None, None
+
+    client = AzureOpenAI(
+        azure_endpoint=endpoint,
+        api_key=api_key,
+        api_version="2024-12-01-preview",
+    )
+    return client, deployment
+
+
+def llm_enhance_annotations(sql_query, operators, aqp_comparisons, annotations):
+    """
+    Uses LLM to rewrite template annotations into natural, insightful explanations.
+    Falls back to original annotations if LLM is unavailable.
+    """
+    client, deployment = _get_llm_client()
+    if not client:
+        return annotations  # fallback: keep template annotations
+
+    # Build context for the LLM
+    context = {
+        "sql_query": sql_query,
+        "operators": operators,
+        "aqp_comparisons": aqp_comparisons,
+        "template_annotations": [
+            {"clause": a["clause"], "sql_text": a["sql_text"],
+             "annotations": a["annotations"]}
+            for a in annotations
+        ],
+    }
+
+    prompt = (
+        "You are a database query plan expert. Given an SQL query, its execution plan "
+        "details, alternative plan cost comparisons, and template annotations, rewrite "
+        "each annotation into a clear, concise, and insightful natural language explanation.\n\n"
+        "Guidelines:\n"
+        "- Explain HOW each part of the query is executed (scan type, join algorithm, etc.)\n"
+        "- Explain WHY the optimizer chose that operator over alternatives, using cost ratios\n"
+        "- Keep each annotation to 1-3 sentences, be specific with numbers\n"
+        "- Do NOT add information not supported by the data\n"
+        "- Use plain English understandable by someone learning databases\n\n"
+        "Return ONLY a valid JSON array where each element has:\n"
+        '  {"clause": "<clause name>", "annotations": ["<rewritten annotation 1>", ...]}\n\n'
+        f"Data:\n{json.dumps(context, default=str)}"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model=deployment,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=2000,
+        )
+        content = response.choices[0].message.content.strip()
+
+        # Strip markdown code fences if present
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1]  # remove opening line
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+
+        enhanced = json.loads(content)
+
+        # Merge enhanced annotations back
+        enhanced_map = {e["clause"]: e["annotations"] for e in enhanced}
+        for ann in annotations:
+            if ann["clause"] in enhanced_map:
+                ann["annotations"] = enhanced_map[ann["clause"]]
+
+        return annotations
+
+    except Exception as e:
+        print(f"LLM enhancement failed, using template annotations: {e}")
+        return annotations  # fallback
+
+
+def llm_chat(user_message, sql_query, qep_text, operators, aqp_comparisons, chat_history):
+    """
+    Handles a user question about the query plan in a conversational manner.
+    Returns the assistant's response string, or an error message.
+    """
+    client, deployment = _get_llm_client()
+    if not client:
+        return ("LLM not configured. Enter your Azure OpenAI API Key\n"
+                "in the connection settings panel at the top.")
+
+    system_msg = (
+        "You are a helpful database query plan expert assistant. "
+        "The user has submitted an SQL query and you have access to its "
+        "query execution plan (QEP), operator details, and alternative plan "
+        "cost comparisons. Answer the user's questions about the query, its "
+        "execution plan, performance, and possible optimizations.\n\n"
+        "Be concise, specific, and reference actual costs/operators from the data. "
+        "If the user asks something unrelated to the query plan, politely redirect.\n\n"
+        f"=== SQL QUERY ===\n{sql_query}\n\n"
+        f"=== QEP (TEXT) ===\n{qep_text}\n\n"
+        f"=== OPERATORS ===\n{json.dumps(operators, default=str)}\n\n"
+        f"=== AQP COST COMPARISONS ===\n{json.dumps(aqp_comparisons, default=str)}"
+    )
+
+    messages = [{"role": "system", "content": system_msg}]
+
+    # Add chat history
+    for msg in chat_history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Add current user message
+    messages.append({"role": "user", "content": user_message})
+
+    try:
+        response = client.chat.completions.create(
+            model=deployment,
+            messages=messages,
+            temperature=0.4,
+            max_tokens=1000,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"LLM error: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -546,10 +699,16 @@ def _condition_in_clause(condition, clause_lower):
 # 7. Main Entry Point
 # ---------------------------------------------------------------------------
 
-def generate_annotations(conn, sql_query):
+def generate_annotations(conn, sql_query, use_llm=True):
     """
     Main function: takes a DB connection and SQL query string,
     returns structured annotations.
+
+    Parameters
+    ----------
+    conn       : psycopg2 connection
+    sql_query  : str
+    use_llm    : bool — if True, attempt to enhance annotations via Azure OpenAI
 
     Returns
     -------
@@ -560,6 +719,7 @@ def generate_annotations(conn, sql_query):
         "aqp_comparisons": cost comparison list
         "annotations":  list of clause-level annotations
         "total_cost":   QEP total cost
+        "llm_used":     bool — whether LLM enhancement was applied
     """
     # 1. Get QEP
     qep = get_qep(conn, sql_query)
@@ -574,10 +734,30 @@ def generate_annotations(conn, sql_query):
     qep_cost = operators["total_cost"]
     aqp_comparisons = compare_aqp_costs(qep_cost, aqps)
 
-    # 4. Map annotations to SQL clauses
+    # 4. Map annotations to SQL clauses (template-based)
     annotations = map_annotations_to_sql(
         sql_query, operators, qep_cost, aqp_comparisons
     )
+
+    # Store template annotations before LLM enhancement
+    for ann in annotations:
+        ann["template_annotations"] = ann["annotations"][:]
+
+    # 5. Optionally enhance annotations with LLM
+    llm_used = False
+    if use_llm:
+        import copy
+        llm_annotations = copy.deepcopy(annotations)
+        llm_annotations = llm_enhance_annotations(
+            sql_query, operators, aqp_comparisons, llm_annotations
+        )
+        # Check if LLM actually changed anything
+        for orig, enhanced in zip(annotations, llm_annotations):
+            if orig["annotations"] != enhanced["annotations"]:
+                orig["llm_annotations"] = enhanced["annotations"]
+                llm_used = True
+            else:
+                orig["llm_annotations"] = []
 
     return {
         "sql":             sql_query,
@@ -586,6 +766,7 @@ def generate_annotations(conn, sql_query):
         "aqp_comparisons": aqp_comparisons,
         "annotations":     annotations,
         "total_cost":      qep_cost,
+        "llm_used":        llm_used,
     }
 
 
