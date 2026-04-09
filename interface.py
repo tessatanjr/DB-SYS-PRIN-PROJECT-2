@@ -26,7 +26,7 @@ from modules.export import export_results
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SQL Query Plan Annotator \u2014 SC3020 Project 2")
+        self.setWindowTitle("SQL Query Plan Annotator \u2014 SC3020 Project 2 Group 6")
         self.setMinimumSize(1200, 750)
         self._last_result = None
         self.theme = ThemeManager()
@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
 
         # Buttons row
         btn_row = QHBoxLayout()
-        self.btn_run = QPushButton("Analyze Query")
+        self.btn_run = QPushButton("Analyse Query")
         self.btn_run.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.btn_run.setStyleSheet(
             "QPushButton { background-color: #4CAF50; color: white; padding: 8px; }"
@@ -130,14 +130,6 @@ class MainWindow(QMainWindow):
         self.chk_llm.toggled.connect(self._on_llm_toggle)
         btn_row.addWidget(self.chk_llm)
         left_layout.addLayout(btn_row)
-
-        # Annotated query display
-        left_layout.addWidget(QLabel("Annotated Query:", font=QFont("Segoe UI", 10, QFont.Bold)))
-        self.annotated_display = QTextEdit()
-        self.annotated_display.setReadOnly(True)
-        self.annotated_display.setFont(QFont("Consolas", 11))
-        self.annotated_display.mousePressEvent = self._on_annotated_click
-        left_layout.addWidget(self.annotated_display)
         splitter.addWidget(left)
 
         # ========== RIGHT PANEL (tabs) ==========
@@ -186,15 +178,30 @@ class MainWindow(QMainWindow):
         self.qep_json_display.setFont(QFont("Consolas", 9))
         self.right_tabs.addTab(self.qep_json_display, "QEP JSON")
 
-        # Tab: Ask AI (chat)
-        self.chat_panel = ChatPanel(self.theme)
-        self.chat_panel.set_status_callback(self.statusBar().showMessage)
-        self.right_tabs.addTab(self.chat_panel, "Ask AI")
+        # Tab: Annotated Query
+        annotated_tab = QWidget()
+        annotated_tab_layout = QVBoxLayout(annotated_tab)
+        self.annotated_display = QTextEdit()
+        self.annotated_display.setReadOnly(True)
+        self.annotated_display.setFont(QFont("Consolas", 11))
+        self.annotated_display.mousePressEvent = self._on_annotated_click
+        annotated_tab_layout.addWidget(self.annotated_display)
+        self.right_tabs.addTab(annotated_tab, "Annotated Query")
 
         splitter.addWidget(self.right_tabs)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)
-        main_layout.addWidget(splitter)
+
+        self.chat_panel = ChatPanel(self.theme)
+        self.chat_panel.set_status_callback(self.statusBar().showMessage)
+
+        v_splitter = QSplitter(Qt.Orientation.Vertical)
+        v_splitter.addWidget(splitter)
+        v_splitter.addWidget(self.chat_panel)
+        v_splitter.setStretchFactor(0, 3)
+        v_splitter.setStretchFactor(1, 1)
+
+        main_layout.addWidget(v_splitter)
         self.statusBar().showMessage("Ready")
 
     # ==================================================================

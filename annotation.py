@@ -18,16 +18,12 @@ _llm_config = {
 
 
 def set_llm_config(endpoint, api_key, deployment):
-    """Update LLM connection settings at runtime."""
     _llm_config["endpoint"] = endpoint
     _llm_config["api_key"] = api_key
     _llm_config["deployment"] = deployment
 
 
 def _get_llm_client():
-    """
-    Returns an AzureOpenAI client using the current config, or (None, None).
-    """
     endpoint = _llm_config["endpoint"]
     api_key = _llm_config["api_key"]
     deployment = _llm_config["deployment"]
@@ -44,13 +40,9 @@ def _get_llm_client():
 
 
 def llm_enhance_annotations(sql_query, operators, aqp_comparisons, annotations):
-    """
-    Uses LLM to rewrite template annotations into natural, insightful explanations.
-    Falls back to original annotations if LLM is unavailable.
-    """
     client, deployment = _get_llm_client()
     if not client:
-        return annotations  # fallback: keep template annotations
+        return annotations 
 
     # Build context for the LLM
     context = {
@@ -111,10 +103,7 @@ def llm_enhance_annotations(sql_query, operators, aqp_comparisons, annotations):
 
 
 def llm_chat(user_message, sql_query, qep_text, operators, aqp_comparisons, chat_history):
-    """
-    Handles a user question about the query plan in a conversational manner.
-    Returns the assistant's response string, or an error message.
-    """
+
     client, deployment = _get_llm_client()
     if not client:
         return ("LLM not configured. Enter your Azure OpenAI API Key\n"

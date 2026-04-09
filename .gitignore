@@ -17,7 +17,7 @@ dbproj/
 # Data files
 *.tbl
 *.csv
-
+db-proj-2-venv/
 # IDE
 .vscode/
 .idea/

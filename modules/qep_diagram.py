@@ -1,5 +1,3 @@
-"""Visual QEP diagram widgets — node boxes and zoomable view."""
-
 from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsView, QGraphicsSimpleTextItem, QGraphicsItem,
 )
@@ -16,8 +14,6 @@ V_GAP = 50
 
 
 class QepNodeItem(QGraphicsRectItem):
-    """A single operator box in the visual QEP tree."""
-
     def __init__(self, plan_node, annotation_index=-1, callback=None):
         super().__init__(0, 0, NODE_W, NODE_H)
         self.plan_node = plan_node
@@ -81,8 +77,6 @@ class QepNodeItem(QGraphicsRectItem):
 
 
 class QepGraphicsView(QGraphicsView):
-    """QGraphicsView with Ctrl+Scroll zoom and drag panning."""
-
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
