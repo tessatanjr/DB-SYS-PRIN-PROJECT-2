@@ -577,10 +577,15 @@ def _format_join_annotation(join, qep_cost, aqp_comparisons):
                 alt_name = alt["operator_name"]
                 description = f"disabling {alt_name}"
 
-            if alt["cost_ratio"] > 1:
+            if alt["cost_ratio"] > 1.1:
                 alt_parts.append(
                     f"{description} increases cost by "
                     f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f})"
+                )
+            elif alt["cost_ratio"] > 1:
+                alt_parts.append(
+                    f"{description} increases cost by "
+                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f}) — similar cost"
                 )
             else:
                 alt_parts.append(
