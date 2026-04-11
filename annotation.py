@@ -476,12 +476,10 @@ def _format_scan_annotation(scan, aqp_comparisons):
             lines.append(f"Index condition: {cond}")
 
     elif node_type == "Bitmap Heap Scan":
-        idx = scan["index_name"]
-        if not idx:
-            raise ValueError(f"Bitmap Heap Scan on {relation} missing index name")
+        idx = scan["index_name"] or "an unknown index"
         lines.append(
             f"Table {label} is accessed via bitmap scan using the index {idx}."
-        )
+    )
         recheck = scan["recheck_cond"]
         if recheck:
             lines.append(f"Recheck condition: {recheck}")
