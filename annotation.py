@@ -201,14 +201,26 @@ JOIN_DISABLE_MAP = {
 }
 
 SCAN_DISABLE_MAP = {
-    "Seq Scan":         {"enable_seqscan"},
-    "Index Scan":       {"enable_indexscan"},
-    "Index Only Scan":  {"enable_indexonlyscan"},
-    "Bitmap Heap Scan": {"enable_bitmapscan"},
-    "Bitmap Index Scan": {"enable_bitmapscan"},
+    "Seq Scan":          {"enable_seqscan"},
+    "Index Scan":        {"enable_indexscan"},
+    "Index Only Scan":   {"enable_indexonlyscan"},
+    "Bitmap Heap Scan":  {"enable_bitmapscan"},
+}
+
+AGG_DISABLE_MAP = {
+    "Aggregate":      set(),  # plain agg, no alternatives
+    "HashAggregate":  {"enable_hashagg"},
+    "GroupAggregate":  set(),  # no single flag to disable sort-based agg
 }
 
 # Human-readable names for planner settings
+SCAN_FRIENDLY_NAME = {
+    "enable_seqscan":       "sequential scan",
+    "enable_indexscan":     "index scan",
+    "enable_indexonlyscan": "index-only scan",
+    "enable_bitmapscan":    "bitmap scan",
+}
+
 OPERATOR_FRIENDLY_NAME = {
     "enable_hashjoin":      "Hash Join",
     "enable_mergejoin":     "Merge Join",
@@ -217,6 +229,10 @@ OPERATOR_FRIENDLY_NAME = {
     "enable_indexscan":     "Index Scan",
     "enable_indexonlyscan": "Index Only Scan",
     "enable_bitmapscan":    "Bitmap Scan",
+}
+
+AGG_FRIENDLY_NAME = {
+    "enable_hashagg": "hash aggregation",
 }
 
 
@@ -238,6 +254,21 @@ def classify_node(node_type):
 # ---------------------------------------------------------------------------
 # 3. Extract Interesting Operators from Plan
 # ---------------------------------------------------------------------------
+def _extract_bitmap_info(node):
+    """Recursively collect index names and conditions from Bitmap Index Scan children."""
+    indexes = []
+    conditions = []
+
+    if node.get("Node Type") == "Bitmap Index Scan":
+        indexes.append(node.get("Index Name"))
+        conditions.append(node.get("Index Cond"))
+
+    for child in node.get("Plans", []):
+        child_idx, child_cond = _extract_bitmap_info(child)
+        indexes.extend(child_idx)
+        conditions.extend(child_cond)
+
+    return indexes, conditions
 
 def extract_operators(plan_json):
     """
@@ -264,21 +295,32 @@ def extract_operators(plan_json):
 
     for node in nodes:
         ntype = node.get("Node Type", "")
+        if ntype == "Bitmap Index Scan":
+            continue # skip, handled by parent Bitmap Heap Scan
+
         category = classify_node(ntype)
         cost = node.get("Total Cost", 0)
 
         if category == "scan":
-            scans.append({
-                "node_type":  ntype,
-                "relation":   node.get("Relation Name", ""),
-                "alias":      node.get("Alias", ""),
-                "schema":     node.get("Schema", ""),
-                "filter":     node.get("Filter", ""),
-                "index_name": node.get("Index Name", ""),
-                "index_cond": node.get("Index Cond", ""),
-                "rows":       node.get("Plan Rows", 0),
-                "cost":       cost,
-            })
+            scan_entry = {
+            "node_type":    ntype,
+            "relation":     node.get("Relation Name", ""),
+            "alias":        node.get("Alias", ""),
+            "schema":       node.get("Schema", ""),
+            "filter":       node.get("Filter", ""),
+            "index_name":   node.get("Index Name", ""),
+            "index_cond":   node.get("Index Cond", ""),
+            "recheck_cond": node.get("Recheck Cond", ""),
+            "rows":         node.get("Plan Rows", 0),
+            "cost":         cost,
+        }
+
+            if ntype == "Bitmap Heap Scan":
+                indexes, conditions = _extract_bitmap_info(node)
+                scan_entry["index_name"] = ", ".join(filter(None, indexes))
+                scan_entry["index_cond"] = "; ".join(filter(None, conditions))
+
+            scans.append(scan_entry)
 
         elif category == "join":
             # Collect table names from child scan nodes
@@ -413,21 +455,39 @@ def _format_scan_annotation(scan, aqp_comparisons):
         else:
             lines.append("No index is defined on this table for the queried columns.")
 
-    elif node_type in ("Index Scan", "Index Only Scan"):
+    elif node_type == "Index Scan":
         idx = scan["index_name"] or "an index"
         lines.append(
-            f"Table {label} is accessed via {node_type.lower()} using {idx}."
+            f"Table {label} is accessed via index scan using {idx}."
         )
         cond = scan["index_cond"]
         if cond:
             lines.append(f"Index condition: {cond}")
 
-    elif node_type in ("Bitmap Heap Scan", "Bitmap Index Scan"):
+    elif node_type == "Index Only Scan":
+        idx = scan["index_name"] or "an index"
         lines.append(
-            f"Table {label} is accessed via bitmap scan."
+            f"Table {label} is accessed via index-only scan using {idx}. "
+            f"All required columns are present in the index, "
+            f"so the table heap is not accessed."
         )
-        if scan["filter"]:
-            lines.append(f"Recheck condition: {scan['filter']}")
+        cond = scan["index_cond"]
+        if cond:
+            lines.append(f"Index condition: {cond}")
+
+    elif node_type == "Bitmap Heap Scan":
+        idx = scan["index_name"]
+        if not idx:
+            raise ValueError(f"Bitmap Heap Scan on {relation} missing index name")
+        lines.append(
+            f"Table {label} is accessed via bitmap scan using the index {idx}."
+        )
+        recheck = scan["recheck_cond"]
+        if recheck:
+            lines.append(f"Recheck condition: {recheck}")
+
+    elif node_type == "Bitmap Index Scan":
+        return ""  # skip, handled by parent Bitmap Heap Scan
 
     else:
         lines.append(f"Table {label} is accessed via {node_type.lower()}.")
@@ -435,6 +495,33 @@ def _format_scan_annotation(scan, aqp_comparisons):
     # Add filter info if present
     if scan["filter"] and "Bitmap" not in node_type:
         lines.append(f"Filter applied: {scan['filter']}")
+
+    # WHY: compare with alternatives (same pattern as join annotation)
+    own_flags = SCAN_DISABLE_MAP.get(node_type, set())
+    alternatives = [
+        c for c in aqp_comparisons
+        if own_flags & set(c["disabled_list"])
+    ]
+
+    if alternatives:
+        alt_parts = []
+        for alt in alternatives:
+            alt_name = alt.get("operator_name") or ", ".join(
+                SCAN_FRIENDLY_NAME.get(d, d)
+                for d in alt["disabled_list"] if d not in own_flags
+            )
+            if alt["cost_ratio"] > 1:
+                alt_parts.append(
+                    f"disabling {alt_name} increases cost by "
+                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f})"
+                )
+            else:
+                alt_parts.append(
+                    f"disabling {alt_name} has similar cost "
+                    f"({alt['cost_ratio']}x, cost {alt['aqp_cost']:.1f})"
+                )
+        if alt_parts:
+            lines.append("Alternatives: " + "; ".join(alt_parts) + ".")
 
     return " ".join(lines)
 
@@ -508,13 +595,14 @@ def _format_join_annotation(join, qep_cost, aqp_comparisons):
     return " ".join(lines)
 
 
-def _format_aggregate_annotation(agg):
+def _format_aggregate_annotation(agg, aqp_comparisons):
     """Generate annotation text for an aggregate operator."""
     strategy = agg["strategy"]
     group_key = agg["group_key"]
     node_type = agg["node_type"]
 
     lines = []
+    # What: describe the aggregation type and grouping
     if group_key:
         keys_str = ", ".join(str(k) for k in group_key)
         lines.append(f"Grouping is performed on ({keys_str}).")
@@ -524,6 +612,34 @@ def _format_aggregate_annotation(agg):
         lines.append(f"Aggregation is performed using {node_type}.")
     if agg["filter"]:
         lines.append(f"Having filter: {agg['filter']}")
+
+     # Why: compare with alternatives
+    own_flags = AGG_DISABLE_MAP.get(node_type, set())
+    alternatives = [
+        c for c in aqp_comparisons
+        if own_flags & set(c["disabled_list"])
+    ]
+
+    if alternatives:
+        alt_parts = []
+        for alt in alternatives:
+            alt_name = alt.get("operator_name") or ", ".join(
+                AGG_FRIENDLY_NAME.get(d, d)
+                for d in alt["disabled_list"] if d not in own_flags
+            )
+            if alt["cost_ratio"] > 1:
+                alt_parts.append(
+                    f"disabling {alt_name} increases cost by "
+                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f})"
+                )
+            else:
+                alt_parts.append(
+                    f"disabling {alt_name} has similar cost "
+                    f"({alt['cost_ratio']}x, cost {alt['aqp_cost']:.1f})"
+                )
+        if alt_parts:
+            lines.append("Alternatives: " + "; ".join(alt_parts) + ".")
+
     return " ".join(lines)
 
 
@@ -644,12 +760,12 @@ def map_annotations_to_sql(sql, operators, qep_cost, aqp_comparisons):
         if clause_name in ("GROUP BY", "HAVING", "SELECT"):
             for agg in operators["aggregates"]:
                 if clause_name == "GROUP BY" and agg["group_key"]:
-                    annotations.append(_format_aggregate_annotation(agg))
+                    annotations.append(_format_aggregate_annotation(agg, aqp_comparisons))
                 elif clause_name == "HAVING" and agg["filter"]:
-                    annotations.append(_format_aggregate_annotation(agg))
+                    annotations.append(_format_aggregate_annotation(agg, aqp_comparisons))
                 elif clause_name == "SELECT" and not agg["group_key"]:
                     # Scalar aggregate (e.g., COUNT(*) without GROUP BY)
-                    annotations.append(_format_aggregate_annotation(agg))
+                    annotations.append(_format_aggregate_annotation(agg, aqp_comparisons))
 
         # --- Sorts → ORDER BY ---
         if clause_name == "ORDER BY":
