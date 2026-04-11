@@ -832,6 +832,20 @@ def generate_annotations(conn, sql_query, use_llm=True):
     # 2. Extract operators from QEP
     operators = extract_operators(qep["json"])
 
+    # Check if any operators were found
+    if not any([operators["scans"], operators["joins"], 
+                operators["aggregates"], operators["sorts"], operators["other"]]):
+        return {
+            "sql":          sql_query,
+            "qep":          qep,
+            "operators":    operators,
+            "aqp_comparisons": [],
+            "annotations":  [],
+            "total_cost":   operators["total_cost"],
+            "llm_used":     False,
+            "note":         "No annotatable operators found (e.g. SELECT 1)."
+        }
+
     # 3. Get AQPs and compare costs
     aqps = get_all_aqps(conn, sql_query)
     qep_cost = operators["total_cost"]
