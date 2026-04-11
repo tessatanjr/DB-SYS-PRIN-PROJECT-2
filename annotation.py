@@ -565,17 +565,10 @@ def _format_join_annotation(join, qep_cost, aqp_comparisons):
         alt_parts = []
         for alt in alternatives:
             # Describe what the alternative was
-            other_disabled = [
-                d for d in alt["disabled_list"] if d not in own_flags
-            ]
-            if other_disabled:
-                alt_name = ", ".join(
-                    OPERATOR_FRIENDLY_NAME.get(d, d) for d in other_disabled
-                )
-                description = f"forcing neither {alt_name}"
-            else:
-                alt_name = alt["operator_name"]
-                description = f"disabling {alt_name}"
+            all_disabled_names = " and ".join(
+                OPERATOR_FRIENDLY_NAME.get(d, d) for d in alt["disabled_list"]
+            )
+            description = f"disabling {all_disabled_names}"
 
             if alt["cost_ratio"] > 1.1:
                 alt_parts.append(
