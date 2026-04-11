@@ -313,6 +313,7 @@ def extract_operators(plan_json):
             "recheck_cond": node.get("Recheck Cond", ""),
             "rows":         node.get("Plan Rows", 0),
             "cost":         cost,
+            "startup_cost": node.get("Startup Cost", 0),
         }
 
             if ntype == "Bitmap Heap Scan":
@@ -332,6 +333,7 @@ def extract_operators(plan_json):
                 "tables":     child_tables,
                 "rows":       node.get("Plan Rows", 0),
                 "cost":       cost,
+                "startup_cost": node.get("Startup Cost", 0),
             })
 
         elif category == "aggregate":
@@ -508,10 +510,15 @@ def _format_scan_annotation(scan, aqp_comparisons):
                 SCAN_FRIENDLY_NAME.get(d, d)
                 for d in alt["disabled_list"] if d not in own_flags
             )
-            if alt["cost_ratio"] > 1:
+            if alt["cost_ratio"] > 1.1:
                 alt_parts.append(
                     f"disabling {alt_name} increases cost by "
                     f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f})"
+                )
+            elif alt["cost_ratio"] > 1:
+                alt_parts.append(
+                    f"disabling {alt_name} increases cost by "
+                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f}) — similar cost"
                 )
             else:
                 alt_parts.append(
@@ -521,8 +528,11 @@ def _format_scan_annotation(scan, aqp_comparisons):
         if alt_parts:
             lines.append("Alternatives: " + "; ".join(alt_parts) + ".")
 
-    return " ".join(lines)
+    startup = scan.get("startup_cost", 0)
+    total = scan.get("cost", 0)
+    lines.append(f"Cost: startup={startup:.1f}, total={total:.1f}.")
 
+    return " ".join(lines)
 
 def _format_join_annotation(join, qep_cost, aqp_comparisons):
     """Generate annotation text for a single join operator."""
@@ -549,6 +559,10 @@ def _format_join_annotation(join, qep_cost, aqp_comparisons):
 
     if condition:
         lines.append(f"Join condition: {condition}")
+
+    startup = join.get("startup_cost", 0)
+    total = join.get("cost", 0)
+    lines.append(f"Cost: startup={startup:.1f}, total={total:.1f}.")
 
     # WHY: compare with alternatives
     # Find AQPs where this join type's flag was disabled (those use alternatives)
@@ -623,10 +637,15 @@ def _format_aggregate_annotation(agg, aqp_comparisons):
                 AGG_FRIENDLY_NAME.get(d, d)
                 for d in alt["disabled_list"] if d not in own_flags
             )
-            if alt["cost_ratio"] > 1:
+            if alt["cost_ratio"] > 1.1:
                 alt_parts.append(
                     f"disabling {alt_name} increases cost by "
                     f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f})"
+                )
+            elif alt["cost_ratio"] > 1:
+                alt_parts.append(
+                    f"disabling {alt_name} increases cost by "
+                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f}) — similar cost"
                 )
             else:
                 alt_parts.append(
