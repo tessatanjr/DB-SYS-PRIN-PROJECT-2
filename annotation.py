@@ -532,7 +532,7 @@ def _format_scan_annotation(scan, aqp_comparisons):
     total = scan.get("cost", 0)
     lines.append(f"Cost: startup={startup:.1f}, total={total:.1f}.")
 
-    return " ".join(lines)
+    return "\n".join(lines)
 
 def _format_join_annotation(join, qep_cost, aqp_comparisons):
     """Generate annotation text for a single join operator."""
@@ -602,7 +602,7 @@ def _format_join_annotation(join, qep_cost, aqp_comparisons):
         if alt_parts:
             lines.append("Alternatives: " + "; ".join(alt_parts) + ".")
 
-    return " ".join(lines)
+    return "\n".join(lines)
 
 
 def _format_aggregate_annotation(agg, aqp_comparisons):
@@ -655,7 +655,7 @@ def _format_aggregate_annotation(agg, aqp_comparisons):
         if alt_parts:
             lines.append("Alternatives: " + "; ".join(alt_parts) + ".")
 
-    return " ".join(lines)
+    return "\n".join(lines)
 
 
 def _format_sort_annotation(sort):
