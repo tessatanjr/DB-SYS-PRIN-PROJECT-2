@@ -385,10 +385,11 @@ class MainWindow(QMainWindow):
 
             cursor.insertText("  Analysis: ", algo_label)
             char_offset += len("  Analysis: ")
-            for i, a in enumerate(template):
-                line = a + (" " if i < len(template) - 1 else "")
-                cursor.insertText(line, algo_text)
-                char_offset += len(line)
+            for a in template:
+                for sentence in a.split("\n"):
+                    if sentence.strip():
+                        cursor.insertText(f"  • {sentence.strip()}\n", algo_text)
+                char_offset += len(a) + 1
             cursor.insertText("\n", sql_fmt)
             char_offset += 1
 
@@ -404,10 +405,11 @@ class MainWindow(QMainWindow):
 
                 cursor.insertText("  AI Insight: ", llm_label)
                 char_offset += len("  AI Insight: ")
-                for i, a in enumerate(llm_anns):
-                    line = a + (" " if i < len(llm_anns) - 1 else "")
-                    cursor.insertText(line, llm_text)
-                    char_offset += len(line)
+                for a in llm_anns:
+                    for sentence in a.split("\n"):
+                        if sentence.strip():
+                            cursor.insertText(f"  • {sentence.strip()}\n", llm_text)
+                    char_offset += len(a) + 1
                 cursor.insertText("\n", sql_fmt)
                 char_offset += 1
 
