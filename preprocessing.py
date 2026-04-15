@@ -7,7 +7,7 @@ DB_CONFIG = {
     "port": 5433,
     "dbname": "TPC-H",
     "user": "postgres",
-    "password": "qwerty" 
+    "password": "qwerty"
 }
 
 def connect_db(config=DB_CONFIG):

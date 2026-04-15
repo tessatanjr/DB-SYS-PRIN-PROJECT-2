@@ -2,7 +2,8 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-    QLineEdit, QPushButton, QMessageBox, QApplication,
+    QLineEdit, QPushButton, QMessageBox, QApplication, QComboBox,
+    QSizePolicy,
 )
 from PySide6.QtGui import QFont
 
@@ -24,14 +25,30 @@ class SettingsPanel(QWidget):
         self._status_callback = None # callback(msg: str)
 
         self._build_ui()
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        def _field_column(label_text, widget, stretch=1):
+            col = QVBoxLayout()
+            col.setContentsMargins(0, 0, 0, 0)
+            col.setSpacing(2)
+            lbl = QLabel(label_text)
+            lbl.setProperty("fieldLabel", True)
+            col.addWidget(lbl)
+            col.addWidget(widget)
+            return col, stretch
 
         # --- Database connection ---
         db_group = QGroupBox("Database Connection")
+        db_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         db_row = QHBoxLayout(db_group)
+        db_row.setContentsMargins(10, 6, 10, 8)
+        db_row.setSpacing(8)
+
         self.input_host = QLineEdit("localhost")
         self.input_port = QLineEdit("5433")
         self.input_dbname = QLineEdit("TPC-H")
@@ -41,42 +58,101 @@ class SettingsPanel(QWidget):
         self.btn_connect = QPushButton("Connect")
         self.btn_connect.clicked.connect(self.connect_db)
 
-        for label, widget in [
-            ("Host:", self.input_host), ("Port:", self.input_port),
-            ("DB:", self.input_dbname), ("User:", self.input_user),
-            ("Pass:", self.input_password),
+        for label, widget, stretch in [
+            ("Host", self.input_host, 2),
+            ("Port", self.input_port, 1),
+            ("DB", self.input_dbname, 2),
+            ("User", self.input_user, 2),
+            ("Pass", self.input_password, 2),
         ]:
-            db_row.addWidget(QLabel(label))
-            db_row.addWidget(widget)
-        db_row.addWidget(self.btn_connect)
+            col, _ = _field_column(label, widget)
+            db_row.addLayout(col, stretch)
+
+        # Button column — align with input row (empty spacer label on top)
+        btn_col = QVBoxLayout()
+        btn_col.setContentsMargins(0, 0, 0, 0)
+        btn_col.setSpacing(2)
+        spacer = QLabel(" ")
+        spacer.setProperty("fieldLabel", True)
+        btn_col.addWidget(spacer)
+        btn_col.addWidget(self.btn_connect)
+        db_row.addLayout(btn_col, 0)
+
         layout.addWidget(db_group)
 
         # --- LLM settings ---
-        llm_group = QGroupBox("LLM Settings (Azure OpenAI)")
-        llm_row = QHBoxLayout(llm_group)
+        self.llm_group = QGroupBox("LLM Settings")
+        self.llm_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        llm_row = QHBoxLayout(self.llm_group)
+        llm_row.setContentsMargins(10, 6, 10, 8)
+        llm_row.setSpacing(8)
 
-        llm_row.addWidget(QLabel("Endpoint:"))
+        # Provider selector
+        self.input_llm_provider = QComboBox()
+        self.input_llm_provider.addItems(["Azure OpenAI", "OpenAI"])
+        self.input_llm_provider.currentTextChanged.connect(self._on_provider_changed)
+        col, _ = _field_column("Provider", self.input_llm_provider)
+        llm_row.addLayout(col, 2)
+
+        # Endpoint (Azure only) — wrap in a widget so we can toggle visibility
         self.input_llm_endpoint = QLineEdit("https://sc3020-db.openai.azure.com/")
         self.input_llm_endpoint.setReadOnly(True)
-        llm_row.addWidget(self.input_llm_endpoint)
+        self.endpoint_container = QWidget()
+        self.endpoint_container.setObjectName("fieldContainer")
+        endpoint_col = QVBoxLayout(self.endpoint_container)
+        endpoint_col.setContentsMargins(0, 0, 0, 0)
+        endpoint_col.setSpacing(2)
+        self.label_llm_endpoint = QLabel("Endpoint")
+        self.label_llm_endpoint.setProperty("fieldLabel", True)
+        endpoint_col.addWidget(self.label_llm_endpoint)
+        endpoint_col.addWidget(self.input_llm_endpoint)
+        llm_row.addWidget(self.endpoint_container, 3)
 
-        llm_row.addWidget(QLabel("Model:"))
+        # Model / Deployment
         self.input_llm_deployment = QLineEdit("gpt-4.1-nano")
-        self.input_llm_deployment.setReadOnly(True)
-        llm_row.addWidget(self.input_llm_deployment)
+        self.deployment_container = QWidget()
+        self.deployment_container.setObjectName("fieldContainer")
+        dep_col = QVBoxLayout(self.deployment_container)
+        dep_col.setContentsMargins(0, 0, 0, 0)
+        dep_col.setSpacing(2)
+        self.label_llm_deployment = QLabel("Deployment")
+        self.label_llm_deployment.setProperty("fieldLabel", True)
+        dep_col.addWidget(self.label_llm_deployment)
+        dep_col.addWidget(self.input_llm_deployment)
+        llm_row.addWidget(self.deployment_container, 2)
 
-        llm_row.addWidget(QLabel("API Key:"))
+        # API Key
         self.input_llm_api_key = QLineEdit()
         self.input_llm_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.input_llm_api_key.setPlaceholderText("Enter API key here...")
-        llm_row.addWidget(self.input_llm_api_key)
+        col, _ = _field_column("API Key", self.input_llm_api_key)
+        llm_row.addLayout(col, 3)
 
         self.btn_llm_connect = QPushButton("Connect LLM")
         self.btn_llm_connect.clicked.connect(self.connect_llm)
-        llm_row.addWidget(self.btn_llm_connect)
+        btn_col2 = QVBoxLayout()
+        btn_col2.setContentsMargins(0, 0, 0, 0)
+        btn_col2.setSpacing(2)
+        spacer2 = QLabel(" ")
+        spacer2.setProperty("fieldLabel", True)
+        btn_col2.addWidget(spacer2)
+        btn_col2.addWidget(self.btn_llm_connect)
+        llm_row.addLayout(btn_col2, 0)
 
-        layout.addWidget(llm_group)
+        layout.addWidget(self.llm_group)
+
+        # Default to Azure OpenAI — show Azure-only fields
+        self._on_provider_changed("Azure OpenAI")
         self.apply_theme()
+
+    def _on_provider_changed(self, provider_text):
+        """Show/hide Azure-specific fields based on provider."""
+        is_azure = provider_text == "Azure OpenAI"
+        self.endpoint_container.setVisible(is_azure)
+        # For Azure the deployment name is user-chosen (read-only preset here);
+        # for OpenAI the model name should be editable.
+        self.input_llm_deployment.setReadOnly(is_azure)
+        self.label_llm_deployment.setText("Deployment" if is_azure else "Model")
 
     # ------------------------------------------------------------------
     # Public API
@@ -114,10 +190,12 @@ class SettingsPanel(QWidget):
             QMessageBox.warning(self, "Missing API Key", "Please enter an API key.")
             return
 
+        provider = "azure" if self.input_llm_provider.currentText() == "Azure OpenAI" else "openai"
         set_llm_config(
-            endpoint=self.input_llm_endpoint.text(),
             api_key=api_key,
             deployment=self.input_llm_deployment.text(),
+            provider=provider,
+            endpoint=self.input_llm_endpoint.text() if provider == "azure" else None,
         )
 
         if self._status_callback:
@@ -143,9 +221,10 @@ class SettingsPanel(QWidget):
                 self._on_llm_status("Failed", "#F44336")
             if self._status_callback:
                 self._status_callback("LLM connection failed")
+            provider_name = self.input_llm_provider.currentText()
             QMessageBox.warning(
                 self, "LLM Connection Failed",
-                f"Could not connect to Azure OpenAI:\n{e}"
+                f"Could not connect to {provider_name}:\n{e}"
             )
 
     def apply_theme(self):

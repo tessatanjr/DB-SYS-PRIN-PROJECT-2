@@ -1,41 +1,60 @@
 import os
 import re
 import json
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 from preprocessing import connect_db, get_qep, get_all_aqps, extract_cost, close_db
 
 
 # ---------------------------------------------------------------------------
-# 0. Azure OpenAI LLM Client
+# 0. LLM Client (supports Azure OpenAI and OpenAI)
 # ---------------------------------------------------------------------------
 
 # Module-level LLM config — set via set_llm_config() from the GUI
 _llm_config = {
-    "endpoint": "https://sc3020-db.openai.azure.com/",
+    "provider": "azure",                                     # "azure" or "openai"
+    "endpoint": "https://sc3020-db.openai.azure.com/",       # Azure only
     "api_key": "",
-    "deployment": "gpt-4.1-nano",
+    "deployment": "gpt-4.1-nano",                            # model name (OpenAI) or deployment name (Azure)
 }
 
 
-def set_llm_config(endpoint, api_key, deployment):
-    _llm_config["endpoint"] = endpoint
+def set_llm_config(api_key, deployment, provider="azure", endpoint=None):
+    """Configure the LLM client.
+
+    Parameters
+    ----------
+    api_key    : str  — provider API key
+    deployment : str  — model name (OpenAI) or deployment name (Azure)
+    provider   : str  — "openai" or "azure"
+    endpoint   : str  — Azure endpoint URL (ignored for OpenAI)
+    """
+    _llm_config["provider"] = provider
     _llm_config["api_key"] = api_key
     _llm_config["deployment"] = deployment
+    if endpoint is not None:
+        _llm_config["endpoint"] = endpoint
 
 
 def _get_llm_client():
-    endpoint = _llm_config["endpoint"]
+    provider = _llm_config["provider"]
     api_key = _llm_config["api_key"]
     deployment = _llm_config["deployment"]
 
-    if not all([endpoint, api_key, deployment]):
+    if not api_key or not deployment:
         return None, None
 
-    client = AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=api_key,
-        api_version="2024-12-01-preview",
-    )
+    if provider == "azure":
+        endpoint = _llm_config["endpoint"]
+        if not endpoint:
+            return None, None
+        client = AzureOpenAI(
+            azure_endpoint=endpoint,
+            api_key=api_key,
+            api_version="2024-12-01-preview",
+        )
+    else:  # openai (default)
+        client = OpenAI(api_key=api_key)
+
     return client, deployment
 
 

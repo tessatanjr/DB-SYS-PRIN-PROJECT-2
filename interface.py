@@ -56,17 +56,19 @@ class MainWindow(QMainWindow):
         self.btn_toggle_settings.clicked.connect(self._toggle_settings)
         top_bar.addWidget(self.btn_toggle_settings)
 
-        self.db_status_label = QLabel("  DB: Disconnected")
-        self.db_status_label.setStyleSheet("color: red; font-weight: bold; padding: 2px 8px;")
+        self.db_status_label = QLabel("● DB Disconnected")
+        self.db_status_label.setObjectName("statusPill")
+        self.db_status_label.setProperty("state", "err")
         top_bar.addWidget(self.db_status_label)
 
-        self.llm_status_label = QLabel("  LLM: Not Configured")
-        self.llm_status_label.setStyleSheet("color: orange; font-weight: bold; padding: 2px 8px;")
+        self.llm_status_label = QLabel("● LLM Not Configured")
+        self.llm_status_label.setObjectName("statusPill")
+        self.llm_status_label.setProperty("state", "warn")
         top_bar.addWidget(self.llm_status_label)
 
         top_bar.addStretch()
 
-        self.btn_theme = QPushButton("\u263E Dark Mode")
+        self.btn_theme = QPushButton("\u2600 Light Mode")
         self.btn_theme.setFlat(True)
         self.btn_theme.clicked.connect(self._toggle_theme)
         top_bar.addWidget(self.btn_theme)
@@ -99,28 +101,27 @@ class MainWindow(QMainWindow):
         left_layout.addLayout(example_row)
 
         # SQL input with syntax highlighting
-        left_layout.addWidget(QLabel("SQL Query:", font=QFont("Segoe UI", 10, QFont.Bold)))
+        sql_label = QLabel("SQL QUERY")
+        sql_label.setStyleSheet("color: #8b93a3; font-size: 11px; font-weight: 700; letter-spacing: 1px; margin-top: 4px;")
+        left_layout.addWidget(sql_label)
         self.query_input = QPlainTextEdit()
-        self.query_input.setFont(QFont("Consolas", 11))
-        self.query_input.setPlaceholderText("Paste your SQL query here, or select an example above...")
-        self.query_input.setMinimumHeight(100)
+        self.query_input.setObjectName("codeEditor")
+        self.query_input.setPlaceholderText("Paste your SQL query here, or select an example above…")
+        self.query_input.setMinimumHeight(110)
         self._sql_highlighter = SqlSyntaxHighlighter(self.query_input.document())
         left_layout.addWidget(self.query_input)
 
         # Buttons row
         btn_row = QHBoxLayout()
         self.btn_run = QPushButton("Analyse Query")
-        self.btn_run.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        self.btn_run.setStyleSheet(
-            "QPushButton { background-color: #4CAF50; color: white; padding: 8px; }"
-            "QPushButton:hover { background-color: #45a049; }"
-        )
+        self.btn_run.setObjectName("primary")
+        self.btn_run.setMinimumHeight(32)
         self.btn_run.clicked.connect(self._run_analysis)
         btn_row.addWidget(self.btn_run)
 
         self.btn_export = QPushButton("Export Results")
+        self.btn_export.setMinimumHeight(32)
         self.btn_export.setEnabled(False)
-        self.btn_export.setStyleSheet("padding: 8px;")
         self.btn_export.clicked.connect(self._export_results)
         btn_row.addWidget(self.btn_export)
 
@@ -130,10 +131,26 @@ class MainWindow(QMainWindow):
         self.chk_llm.toggled.connect(self._on_llm_toggle)
         btn_row.addWidget(self.chk_llm)
         left_layout.addLayout(btn_row)
-        splitter.addWidget(left)
+        # `left` will be added to the left vertical splitter (together
+        # with the chat panel) further down, not directly to the main
+        # horizontal splitter.
 
         # ========== RIGHT PANEL (tabs) ==========
         self.right_tabs = QTabWidget()
+        self.right_tabs.setMinimumWidth(0)
+        self.right_tabs.setUsesScrollButtons(True)
+        self.right_tabs.tabBar().setUsesScrollButtons(True)
+        self.right_tabs.tabBar().setExpanding(False)
+
+        # Tab: Annotated Query (first tab)
+        annotated_tab = QWidget()
+        annotated_tab_layout = QVBoxLayout(annotated_tab)
+        self.annotated_display = QTextEdit()
+        self.annotated_display.setObjectName("codeEditor")
+        self.annotated_display.setReadOnly(True)
+        self.annotated_display.mousePressEvent = self._on_annotated_click
+        annotated_tab_layout.addWidget(self.annotated_display)
+        self.right_tabs.addTab(annotated_tab, "Annotated Query")
 
         # Tab: QEP Diagram
         self.qep_scene = QGraphicsScene()
@@ -150,8 +167,8 @@ class MainWindow(QMainWindow):
 
         # Tab: QEP Text
         self.qep_text_display = QPlainTextEdit()
+        self.qep_text_display.setObjectName("codeEditor")
         self.qep_text_display.setReadOnly(True)
-        self.qep_text_display.setFont(QFont("Consolas", 10))
         self.right_tabs.addTab(self.qep_text_display, "QEP Text")
 
         # Tab: AQP Comparison (chart + table)
@@ -174,34 +191,40 @@ class MainWindow(QMainWindow):
 
         # Tab: QEP JSON
         self.qep_json_display = QPlainTextEdit()
+        self.qep_json_display.setObjectName("codeEditor")
         self.qep_json_display.setReadOnly(True)
-        self.qep_json_display.setFont(QFont("Consolas", 9))
         self.right_tabs.addTab(self.qep_json_display, "QEP JSON")
 
-        # Tab: Annotated Query
-        annotated_tab = QWidget()
-        annotated_tab_layout = QVBoxLayout(annotated_tab)
-        self.annotated_display = QTextEdit()
-        self.annotated_display.setReadOnly(True)
-        self.annotated_display.setFont(QFont("Consolas", 11))
-        self.annotated_display.mousePressEvent = self._on_annotated_click
-        annotated_tab_layout.addWidget(self.annotated_display)
-        self.right_tabs.addTab(annotated_tab, "Annotated Query")
-
-        splitter.addWidget(self.right_tabs)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
-
+        # Chat panel (goes under SQL query in the left column)
         self.chat_panel = ChatPanel(self.theme)
         self.chat_panel.set_status_callback(self.statusBar().showMessage)
 
-        v_splitter = QSplitter(Qt.Orientation.Vertical)
-        v_splitter.addWidget(splitter)
-        v_splitter.addWidget(self.chat_panel)
-        v_splitter.setStretchFactor(0, 3)
-        v_splitter.setStretchFactor(1, 1)
+        # Left column: SQL query on top, chat below
+        left_v_splitter = QSplitter(Qt.Orientation.Vertical)
+        left_v_splitter.addWidget(left)
+        left_v_splitter.addWidget(self.chat_panel)
+        left_v_splitter.setStretchFactor(0, 1)
+        left_v_splitter.setStretchFactor(1, 2)
+        left_v_splitter.setChildrenCollapsible(False)
 
-        main_layout.addWidget(v_splitter)
+        # Horizontal split: left column | QEP tabs (full height)
+        splitter.addWidget(left_v_splitter)
+        splitter.addWidget(self.right_tabs)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([600, 600])
+        splitter.setOpaqueResize(True)
+        splitter.setChildrenCollapsible(False)
+        # Let both panes shrink smoothly without snapping to child widgets'
+        # minimum size hints (QTabWidget tab bar + QGraphicsView, etc.).
+        left_v_splitter.setMinimumWidth(0)
+        self.right_tabs.setMinimumWidth(0)
+        for i in range(self.right_tabs.count()):
+            w = self.right_tabs.widget(i)
+            if w is not None:
+                w.setMinimumWidth(0)
+
+        main_layout.addWidget(splitter)
         self.statusBar().showMessage("Ready")
 
     # ==================================================================
@@ -218,31 +241,40 @@ class MainWindow(QMainWindow):
     # ==================================================================
     def _on_db_status(self, connected, msg):
         if connected:
-            self.db_status_label.setText("  DB: Connected")
-            self.db_status_label.setStyleSheet("color: #4CAF50; font-weight: bold; padding: 2px 8px;")
+            self.db_status_label.setText("● DB Connected")
+            self.db_status_label.setProperty("state", "ok")
         else:
-            self.db_status_label.setText("  DB: Disconnected")
-            self.db_status_label.setStyleSheet("color: #F44336; font-weight: bold; padding: 2px 8px;")
+            self.db_status_label.setText("● DB Disconnected")
+            self.db_status_label.setProperty("state", "err")
+        self.db_status_label.style().unpolish(self.db_status_label)
+        self.db_status_label.style().polish(self.db_status_label)
         self.statusBar().showMessage(msg)
 
     def _on_llm_status(self, status, color):
-        self.llm_status_label.setText(f"  LLM: {status}")
-        self.llm_status_label.setStyleSheet(f"color: {color}; font-weight: bold; padding: 2px 8px;")
+        self.llm_status_label.setText(f"● LLM {status}")
+        # Map legacy colour signals to semantic pill states
+        state = "ok" if "4CAF50" in color.upper() or color.lower() in ("#3ecf8e", "#16a06a") else (
+            "err" if "F44336" in color.upper() or color.lower() in ("#f87171", "#c03030") else "warn"
+        )
+        self.llm_status_label.setProperty("state", state)
+        self.llm_status_label.style().unpolish(self.llm_status_label)
+        self.llm_status_label.style().polish(self.llm_status_label)
 
     # ==================================================================
     # Theme toggle
     # ==================================================================
     def _toggle_theme(self):
         is_dark = self.theme.toggle()
-        self.btn_theme.setText("\u2600 Light Mode" if is_dark else "\u263E Dark Mode")
+        self.btn_theme.setText("\u263E Dark Mode" if not is_dark else "\u2600 Light Mode")
 
-        # Restyle all theme-aware widgets
-        btn_color = self.theme.button_text_color()
-        self.btn_theme.setStyleSheet(f"padding: 2px 10px; color: {btn_color};")
-        self.btn_toggle_settings.setStyleSheet(f"text-align: left; padding: 2px 6px; color: {btn_color};")
         self._sql_highlighter.set_dark(is_dark)
         self.settings_panel.apply_theme()
         self.chat_panel.apply_theme()
+
+        # Re-polish status pills so QSS property selectors re-apply
+        for pill in (self.db_status_label, self.llm_status_label):
+            pill.style().unpolish(pill)
+            pill.style().polish(pill)
 
         # Re-render views
         if self._last_result:
@@ -486,8 +518,12 @@ class MainWindow(QMainWindow):
         children = plan_node.get("Plans", [])
         ann_idx = self._find_annotation_index(plan_node, annotations)
 
+        ann_obj = annotations[ann_idx] if 0 <= ann_idx < len(annotations) else None
+
         if not children:
-            node_item = QepNodeItem(plan_node, ann_idx, self._on_visual_node_clicked)
+            node_item = QepNodeItem(
+                plan_node, ann_idx, self._on_visual_node_clicked, annotation=ann_obj,
+            )
             node_item.setPos(x, y)
             self.qep_scene.addItem(node_item)
             self._visual_nodes.append(node_item)
@@ -504,7 +540,9 @@ class MainWindow(QMainWindow):
         child_width_total += H_GAP * (len(children) - 1)
 
         parent_x = x + (child_width_total - NODE_W) / 2
-        node_item = QepNodeItem(plan_node, ann_idx, self._on_visual_node_clicked)
+        node_item = QepNodeItem(
+            plan_node, ann_idx, self._on_visual_node_clicked, annotation=ann_obj,
+        )
         node_item.setPos(parent_x, y)
         self.qep_scene.addItem(node_item)
         self._visual_nodes.append(node_item)
@@ -644,6 +682,11 @@ class MainWindow(QMainWindow):
 def launch_gui():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+    # Pre-apply theme so QSS is active before widgets instantiate
+    from modules.themes import ThemeManager
+    _bootstrap_theme = ThemeManager()
+    _bootstrap_theme.apply_initial()
+
     window = MainWindow()
     window.theme.apply_initial()
     window.show()
