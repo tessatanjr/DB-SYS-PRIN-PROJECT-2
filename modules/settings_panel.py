@@ -50,7 +50,7 @@ class SettingsPanel(QWidget):
         db_row.setSpacing(8)
 
         self.input_host = QLineEdit("localhost")
-        self.input_port = QLineEdit("5433")
+        self.input_port = QLineEdit("5432")
         self.input_dbname = QLineEdit("TPC-H")
         self.input_user = QLineEdit("postgres")
         self.input_password = QLineEdit("qwerty")

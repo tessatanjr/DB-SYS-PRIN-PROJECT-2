@@ -3,8 +3,8 @@
 A desktop GUI that takes an SQL query, retrieves PostgreSQL's Query Execution
 Plan (QEP), and produces an annotated SQL — explaining *how* each clause is
 executed and *why* the planner picked each operator. Built with PySide6 + psycopg2,
-with optional Azure OpenAI / OpenAI integration for natural-language annotations
-and a chatbot.
+with optional LLM integration (OpenAI, Claude, Ollama) for natural-language
+annotations and a chatbot.
 
 ---
 
@@ -46,54 +46,18 @@ sudo apt install python3 python3-venv postgresql postgresql-contrib
 sudo systemctl start postgresql
 ```
 
-### Step 2 — Configure PostgreSQL on Port 5433
+### Step 2 — Verify PostgreSQL is Running
 
-The application connects to PostgreSQL on **port 5433** by default.
+The application connects to PostgreSQL on the default **port 5432**.
 
-Find the config file location:
-
-```bash
-# Any OS (run inside psql, or via -c)
-psql -U postgres -c "SHOW config_file;"
-```
-
-Typical locations:
-- **Windows**: `C:\Program Files\PostgreSQL\17\data\postgresql.conf`
-- **macOS** (Homebrew): `/opt/homebrew/var/postgresql@17/postgresql.conf`
-- **Linux**: `/etc/postgresql/17/main/postgresql.conf`
-
-Open the file in a text editor (run as Administrator on Windows) and set:
-
-```
-port = 5433
-```
-
-Make sure the line is **uncommented** (no leading `#`). Then restart Postgres:
-
-```powershell
-# Windows (PowerShell, as Administrator)
-Restart-Service postgresql-x64-17
-```
+Confirm Postgres is running and accessible:
 
 ```bash
-# macOS
-brew services restart postgresql@17
-
-# Linux
-sudo systemctl restart postgresql
+psql -U postgres -p 5432 -l
 ```
 
-Confirm it is listening on 5433:
-
-```bash
-psql -U postgres -p 5433 -l
-```
-
-> If you cannot change the port, instead edit the Host/Port fields in the GUI's
+> If your PostgreSQL uses a different port, edit the Port field in the GUI's
 > *Database Connection* panel before clicking **Connect**.
-
-> If you cannot change the port, you can instead edit the Host/Port fields in the
-> GUI's *Database Connection* panel before clicking **Connect**.
 
 ### Step 3 — Create the TPC-H Database and Load Data
 
@@ -102,20 +66,20 @@ shells (you'll be prompted for the `postgres` password):
 
 ```bash
 # Create the database (must be named exactly TPC-H)
-createdb -p 5433 -U postgres "TPC-H"
+createdb -p 5432 -U postgres "TPC-H"
 
 # Load the schema and data (replace paths with your TPC-H .sql files)
-psql -p 5433 -U postgres -d "TPC-H" -f path/to/tpch_schema.sql
-psql -p 5433 -U postgres -d "TPC-H" -f path/to/tpch_data.sql
+psql -p 5432 -U postgres -d "TPC-H" -f path/to/tpch_schema.sql
+psql -p 5432 -U postgres -d "TPC-H" -f path/to/tpch_data.sql
 ```
 
 > On Windows, use Windows-style paths, e.g.
-> `psql -p 5433 -U postgres -d "TPC-H" -f C:\Users\you\tpch\tpch_schema.sql`
+> `psql -p 5432 -U postgres -d "TPC-H" -f C:\Users\you\tpch\tpch_schema.sql`
 
 Verify the tables exist:
 
 ```bash
-psql -p 5433 -U postgres -d "TPC-H" -c "\dt"
+psql -p 5432 -U postgres -d "TPC-H" -c "\dt"
 ```
 
 You should see: `customer`, `lineitem`, `nation`, `orders`, `part`, `partsupp`,
@@ -125,7 +89,7 @@ If the tables are owned by a different user (you'll see permission errors later)
 reassign them to `postgres`. On macOS / Linux:
 
 ```bash
-psql -p 5433 -U postgres -d "TPC-H" <<EOF
+psql -p 5432 -U postgres -d "TPC-H" <<EOF
 ALTER TABLE customer OWNER TO postgres;
 ALTER TABLE orders   OWNER TO postgres;
 ALTER TABLE lineitem OWNER TO postgres;
@@ -140,21 +104,21 @@ EOF
 On Windows (PowerShell), run each statement individually:
 
 ```powershell
-psql -p 5433 -U postgres -d "TPC-H" -c "ALTER TABLE customer OWNER TO postgres;"
-psql -p 5433 -U postgres -d "TPC-H" -c "ALTER TABLE orders   OWNER TO postgres;"
-psql -p 5433 -U postgres -d "TPC-H" -c "ALTER TABLE lineitem OWNER TO postgres;"
-psql -p 5433 -U postgres -d "TPC-H" -c "ALTER TABLE nation   OWNER TO postgres;"
-psql -p 5433 -U postgres -d "TPC-H" -c "ALTER TABLE part     OWNER TO postgres;"
-psql -p 5433 -U postgres -d "TPC-H" -c "ALTER TABLE partsupp OWNER TO postgres;"
-psql -p 5433 -U postgres -d "TPC-H" -c "ALTER TABLE region   OWNER TO postgres;"
-psql -p 5433 -U postgres -d "TPC-H" -c "ALTER TABLE supplier OWNER TO postgres;"
+psql -p 5432 -U postgres -d "TPC-H" -c "ALTER TABLE customer OWNER TO postgres;"
+psql -p 5432 -U postgres -d "TPC-H" -c "ALTER TABLE orders   OWNER TO postgres;"
+psql -p 5432 -U postgres -d "TPC-H" -c "ALTER TABLE lineitem OWNER TO postgres;"
+psql -p 5432 -U postgres -d "TPC-H" -c "ALTER TABLE nation   OWNER TO postgres;"
+psql -p 5432 -U postgres -d "TPC-H" -c "ALTER TABLE part     OWNER TO postgres;"
+psql -p 5432 -U postgres -d "TPC-H" -c "ALTER TABLE partsupp OWNER TO postgres;"
+psql -p 5432 -U postgres -d "TPC-H" -c "ALTER TABLE region   OWNER TO postgres;"
+psql -p 5432 -U postgres -d "TPC-H" -c "ALTER TABLE supplier OWNER TO postgres;"
 ```
 
 The default user `postgres` should already exist after install. If you need to
 set its password to match the app's default, run:
 
 ```bash
-psql -p 5433 -U postgres -c "ALTER USER postgres WITH PASSWORD 'qwerty';"
+psql -p 5432 -U postgres -c "ALTER USER postgres WITH PASSWORD 'qwerty';"
 ```
 
 ### Step 4 — Set Up the Python Environment
@@ -182,7 +146,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` installs: `psycopg2-binary`, `PySide6`, `openai`.
+`requirements.txt` installs: `psycopg2-binary`, `PySide6`, `openai`, `anthropic`.
 
 ### Step 5 — Launch the Software
 
@@ -202,14 +166,14 @@ The GUI window will open.
 
 1. The default DB credentials are pre-filled:
    ```
-   Host: localhost   Port: 5433   DB: TPC-H   User: postgres   Pass: qwerty
+   Host: localhost   Port: 5432   DB: TPC-H   User: postgres   Pass: qwerty
    ```
    Adjust if needed, then click **Connect**. The status pill should turn green
    ("DB Connected").
 2. *(Optional, for AI annotations / chatbot)* In the **LLM Settings** panel:
-   - Pick a provider (Azure OpenAI or OpenAI)
-   - Paste your API key
-   - Click **Connect LLM**
+   - Pick a provider (**OpenAI**, **Claude**, or **Ollama**)
+   - For OpenAI / Claude: paste your API key and click **Connect LLM**
+   - For Ollama: type your model name (e.g. `llama3.2:latest`) and click **Connect LLM** (no API key needed)
 
    Without an LLM connected, the app still works — annotations are produced from
    built-in templates, and the chatbot is disabled.
@@ -226,13 +190,16 @@ That's it.
 project.py             Entry point — launches the GUI
 interface.py           Main window, layout, tab wiring
 preprocessing.py       Postgres connection, EXPLAIN, AQP generation
-annotation.py          Plan parsing, template annotations, LLM enhancement
+annotation.py          Plan parsing, template annotations, orchestration
 modules/
+  llm.py               LLM client setup (OpenAI, Claude, Ollama) + chat functions
   settings_panel.py    DB + LLM connection panel
   chat_panel.py        AI Q&A chat panel
-  qep_diagram.py       QGraphicsView-based plan diagram + node tooltips
+  qep_diagram.py       QGraphicsView-based plan diagram + click popups
   themes.py            Dark / light theme manager (QSS + palette)
   constants.py         Operator categories, node colors, example queries
+  syntax.py            SQL syntax highlighter
+  export.py            Export results to file
 requirements.txt
 ```
 
@@ -240,14 +207,14 @@ requirements.txt
 
 | Problem | Fix |
 |---|---|
-| `connection refused` on port 5433 | Postgres is not listening on 5433 — see Step 2 (uncomment `port = 5433` in `postgresql.conf` and restart). |
+| `connection refused` on port 5432 | Postgres is not running or listening on a different port — verify with `psql -U postgres -p 5432 -l`. |
 | `password authentication failed` | Either change the password in the GUI's *Database Connection* fields, or set the `postgres` password to `qwerty` (Step 3). |
 | `permission denied for table customer` | Run the `ALTER TABLE ... OWNER TO postgres;` block in Step 3. |
 | `ModuleNotFoundError: PySide6` | Activate the venv (`venv\Scripts\Activate.ps1` on Windows, `source venv/bin/activate` on macOS/Linux) and re-run `pip install -r requirements.txt`. |
 | `psql` / `createdb` not recognised (Windows) | Add PostgreSQL's `bin` folder (e.g. `C:\Program Files\PostgreSQL\17\bin`) to your PATH and reopen PowerShell. |
 | `Activate.ps1 cannot be loaded` (Windows) | Run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then retry. |
 | App opens but Examples / Analyse do nothing | Click **Connect** in the *Database Connection* panel first. |
-| LLM connection fails | Verify the API key, and for Azure check the deployment name matches the one in your Azure portal. |
+| LLM connection fails | Verify the API key. For Ollama, ensure it's running (`ollama list` to check). |
 
 ## Team
 
