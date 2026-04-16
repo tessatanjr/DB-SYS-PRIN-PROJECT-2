@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont
 
 from preprocessing import connect_db, close_db
-from annotation import set_llm_config, _get_llm_client
+from modules.llm import set_llm_config, _get_llm_client, _chat_completion, PROVIDER_PRESETS
 
 
 class SettingsPanel(QWidget):
@@ -89,44 +89,39 @@ class SettingsPanel(QWidget):
 
         # Provider selector
         self.input_llm_provider = QComboBox()
-        self.input_llm_provider.addItems(["Azure OpenAI", "OpenAI"])
+        self.input_llm_provider.addItems(list(PROVIDER_PRESETS.keys()))
         self.input_llm_provider.currentTextChanged.connect(self._on_provider_changed)
         col, _ = _field_column("Provider", self.input_llm_provider)
+        llm_row.addLayout(col, 1)
+
+        # Endpoint
+        default_endpoint = PROVIDER_PRESETS["OpenAI"][0]
+        self.input_llm_endpoint = QLineEdit(default_endpoint)
+        self.input_llm_endpoint.setReadOnly(True)
+        col, _ = _field_column("Endpoint", self.input_llm_endpoint)
+        llm_row.addLayout(col, 3)
+
+        # Model
+        self.input_llm_deployment = QComboBox()
+        self.input_llm_deployment.setEditable(False)
+        self.input_llm_deployment.addItems(PROVIDER_PRESETS["OpenAI"][1])
+        col, _ = _field_column("Model", self.input_llm_deployment)
         llm_row.addLayout(col, 2)
 
-        # Endpoint (Azure only) — wrap in a widget so we can toggle visibility
-        self.input_llm_endpoint = QLineEdit("https://sc3020-db.openai.azure.com/")
-        self.input_llm_endpoint.setReadOnly(True)
-        self.endpoint_container = QWidget()
-        self.endpoint_container.setObjectName("fieldContainer")
-        endpoint_col = QVBoxLayout(self.endpoint_container)
-        endpoint_col.setContentsMargins(0, 0, 0, 0)
-        endpoint_col.setSpacing(2)
-        self.label_llm_endpoint = QLabel("Endpoint")
-        self.label_llm_endpoint.setProperty("fieldLabel", True)
-        endpoint_col.addWidget(self.label_llm_endpoint)
-        endpoint_col.addWidget(self.input_llm_endpoint)
-        llm_row.addWidget(self.endpoint_container, 3)
-
-        # Model / Deployment
-        self.input_llm_deployment = QLineEdit("gpt-4.1-nano")
-        self.deployment_container = QWidget()
-        self.deployment_container.setObjectName("fieldContainer")
-        dep_col = QVBoxLayout(self.deployment_container)
-        dep_col.setContentsMargins(0, 0, 0, 0)
-        dep_col.setSpacing(2)
-        self.label_llm_deployment = QLabel("Deployment")
-        self.label_llm_deployment.setProperty("fieldLabel", True)
-        dep_col.addWidget(self.label_llm_deployment)
-        dep_col.addWidget(self.input_llm_deployment)
-        llm_row.addWidget(self.deployment_container, 2)
-
-        # API Key
+        # API Key (wrapped in a container so it can be hidden for Ollama)
+        self.api_key_container = QWidget()
+        self.api_key_container.setStyleSheet("background: transparent;")
+        api_key_layout = QVBoxLayout(self.api_key_container)
+        api_key_layout.setContentsMargins(0, 0, 0, 0)
+        api_key_layout.setSpacing(2)
+        api_key_label = QLabel("API Key")
+        api_key_label.setProperty("fieldLabel", True)
+        api_key_layout.addWidget(api_key_label)
         self.input_llm_api_key = QLineEdit()
         self.input_llm_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.input_llm_api_key.setPlaceholderText("Enter API key here...")
-        col, _ = _field_column("API Key", self.input_llm_api_key)
-        llm_row.addLayout(col, 3)
+        api_key_layout.addWidget(self.input_llm_api_key)
+        llm_row.addWidget(self.api_key_container, 3)
 
         self.btn_llm_connect = QPushButton("Connect LLM")
         self.btn_llm_connect.clicked.connect(self.connect_llm)
@@ -140,19 +135,29 @@ class SettingsPanel(QWidget):
         llm_row.addLayout(btn_col2, 0)
 
         layout.addWidget(self.llm_group)
-
-        # Default to Azure OpenAI — show Azure-only fields
-        self._on_provider_changed("Azure OpenAI")
         self.apply_theme()
 
     def _on_provider_changed(self, provider_text):
-        """Show/hide Azure-specific fields based on provider."""
-        is_azure = provider_text == "Azure OpenAI"
-        self.endpoint_container.setVisible(is_azure)
-        # For Azure the deployment name is user-chosen (read-only preset here);
-        # for OpenAI the model name should be editable.
-        self.input_llm_deployment.setReadOnly(is_azure)
-        self.label_llm_deployment.setText("Deployment" if is_azure else "Model")
+        """Auto-fill endpoint and model defaults when provider changes."""
+        preset = PROVIDER_PRESETS.get(provider_text)
+        if not preset:
+            return
+        endpoint, models, needs_key = preset
+        is_ollama = provider_text == "Ollama"
+        self.input_llm_endpoint.setText(endpoint)
+        self.input_llm_endpoint.setReadOnly(True)
+        self.input_llm_deployment.clear()
+        if models:
+            self.input_llm_deployment.addItems(models)
+        self.input_llm_deployment.setEditable(is_ollama)
+        if is_ollama:
+            self.input_llm_deployment.setEditText("")
+            self.input_llm_deployment.lineEdit().setPlaceholderText("e.g. llama3.2:latest")
+        # Hide API key field for Ollama
+        self.api_key_container.setVisible(not is_ollama)
+        self.input_llm_api_key.setPlaceholderText(
+            "Enter API key here..." if needs_key else "Not required"
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -183,32 +188,38 @@ class SettingsPanel(QWidget):
             )
 
     def connect_llm(self):
+        provider = self.input_llm_provider.currentText()
         api_key = self.input_llm_api_key.text().strip()
-        if not api_key:
+        needs_key = PROVIDER_PRESETS.get(provider, (None, None, True))[2]
+
+        if needs_key and not api_key:
             if self._on_llm_status:
                 self._on_llm_status("No API Key", "#F44336")
             QMessageBox.warning(self, "Missing API Key", "Please enter an API key.")
             return
 
-        provider = "azure" if self.input_llm_provider.currentText() == "Azure OpenAI" else "openai"
         set_llm_config(
-            api_key=api_key,
-            deployment=self.input_llm_deployment.text(),
             provider=provider,
-            endpoint=self.input_llm_endpoint.text() if provider == "azure" else None,
+            api_key=api_key,
+            model=self.input_llm_deployment.currentText(),
+            endpoint=self.input_llm_endpoint.text(),
         )
 
+        # Show connecting state
+        self.btn_llm_connect.setEnabled(False)
+        self.btn_llm_connect.setText("Connecting...")
+        if self._on_llm_status:
+            self._on_llm_status("Connecting...", "#FF9800")
         if self._status_callback:
             self._status_callback("Testing LLM connection...")
         QApplication.processEvents()
 
         try:
-            client, deployment = _get_llm_client()
+            client, model = _get_llm_client()
             if client:
-                client.chat.completions.create(
-                    model=deployment,
+                _chat_completion(
+                    client, model,
                     messages=[{"role": "user", "content": "Reply with OK"}],
-                    max_tokens=5,
                 )
                 if self._on_llm_status:
                     self._on_llm_status("Online", "#4CAF50")
@@ -221,17 +232,17 @@ class SettingsPanel(QWidget):
                 self._on_llm_status("Failed", "#F44336")
             if self._status_callback:
                 self._status_callback("LLM connection failed")
-            provider_name = self.input_llm_provider.currentText()
             QMessageBox.warning(
                 self, "LLM Connection Failed",
-                f"Could not connect to {provider_name}:\n{e}"
+                f"Could not connect to {provider}:\n{e}"
             )
+        finally:
+            self.btn_llm_connect.setEnabled(True)
+            self.btn_llm_connect.setText("Connect LLM")
 
     def apply_theme(self):
-        """Update read-only field backgrounds for current theme."""
-        style = self.theme.readonly_field_bg()
-        self.input_llm_endpoint.setStyleSheet(style)
-        self.input_llm_deployment.setStyleSheet(style)
+        """Update field styles for current theme."""
+        pass
 
     def close_connection(self):
         if self.conn:

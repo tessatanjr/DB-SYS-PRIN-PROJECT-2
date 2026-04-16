@@ -80,6 +80,7 @@ class MainWindow(QMainWindow):
         self.settings_panel._on_db_status = self._on_db_status
         self.settings_panel._on_llm_status = self._on_llm_status
         self.settings_panel._status_callback = self.statusBar().showMessage
+        self.settings_panel.setVisible(True)
         main_layout.addWidget(self.settings_panel)
 
         # --- Main splitter ---
@@ -93,7 +94,7 @@ class MainWindow(QMainWindow):
         example_row = QHBoxLayout()
         example_row.addWidget(QLabel("Examples:"))
         self.query_combo = QComboBox()
-        self.query_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.query_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         for label, _ in EXAMPLE_QUERIES:
             self.query_combo.addItem(label)
         self.query_combo.currentIndexChanged.connect(self._on_example_selected)
@@ -148,7 +149,6 @@ class MainWindow(QMainWindow):
         self.annotated_display = QTextEdit()
         self.annotated_display.setObjectName("codeEditor")
         self.annotated_display.setReadOnly(True)
-        self.annotated_display.mousePressEvent = self._on_annotated_click
         annotated_tab_layout.addWidget(self.annotated_display)
         self.right_tabs.addTab(annotated_tab, "Annotated Query")
 
@@ -164,12 +164,6 @@ class MainWindow(QMainWindow):
         self.qep_tree_widget.setColumnWidth(1, 250)
         self.qep_tree_widget.currentItemChanged.connect(self._on_tree_item_selected)
         self.right_tabs.addTab(self.qep_tree_widget, "QEP Tree")
-
-        # Tab: QEP Text
-        self.qep_text_display = QPlainTextEdit()
-        self.qep_text_display.setObjectName("codeEditor")
-        self.qep_text_display.setReadOnly(True)
-        self.right_tabs.addTab(self.qep_text_display, "QEP Text")
 
         # Tab: AQP Comparison (chart + table)
         aqp_tab = QWidget()
@@ -188,6 +182,12 @@ class MainWindow(QMainWindow):
         self.aqp_tree_widget.setColumnWidth(0, 250)
         aqp_layout.addWidget(self.aqp_tree_widget)
         self.right_tabs.addTab(aqp_tab, "AQP Comparison")
+
+        # Tab: QEP Text
+        self.qep_text_display = QPlainTextEdit()
+        self.qep_text_display.setObjectName("codeEditor")
+        self.qep_text_display.setReadOnly(True)
+        self.right_tabs.addTab(self.qep_text_display, "QEP Text")
 
         # Tab: QEP JSON
         self.qep_json_display = QPlainTextEdit()
@@ -217,7 +217,9 @@ class MainWindow(QMainWindow):
         splitter.setChildrenCollapsible(False)
         # Let both panes shrink smoothly without snapping to child widgets'
         # minimum size hints (QTabWidget tab bar + QGraphicsView, etc.).
+        left.setMinimumWidth(0)
         left_v_splitter.setMinimumWidth(0)
+        self.chat_panel.setMinimumWidth(0)
         self.right_tabs.setMinimumWidth(0)
         for i in range(self.right_tabs.count()):
             w = self.right_tabs.widget(i)
@@ -259,6 +261,10 @@ class MainWindow(QMainWindow):
         self.llm_status_label.setProperty("state", state)
         self.llm_status_label.style().unpolish(self.llm_status_label)
         self.llm_status_label.style().polish(self.llm_status_label)
+        # Auto-hide settings once LLM is online
+        if state == "ok" and self.settings_panel.isVisible():
+            self.settings_panel.setVisible(False)
+            self.btn_toggle_settings.setText("\u25B6 Show Settings")
 
     # ==================================================================
     # Theme toggle
@@ -522,7 +528,7 @@ class MainWindow(QMainWindow):
 
         if not children:
             node_item = QepNodeItem(
-                plan_node, ann_idx, self._on_visual_node_clicked, annotation=ann_obj,
+                plan_node, ann_idx, None, annotation=ann_obj,
             )
             node_item.setPos(x, y)
             self.qep_scene.addItem(node_item)
@@ -541,7 +547,7 @@ class MainWindow(QMainWindow):
 
         parent_x = x + (child_width_total - NODE_W) / 2
         node_item = QepNodeItem(
-            plan_node, ann_idx, self._on_visual_node_clicked, annotation=ann_obj,
+            plan_node, ann_idx, None, annotation=ann_obj,
         )
         node_item.setPos(parent_x, y)
         self.qep_scene.addItem(node_item)
@@ -572,52 +578,8 @@ class MainWindow(QMainWindow):
                 return idx
         return -1
 
-    # ==================================================================
-    # Bidirectional clicking
-    # ==================================================================
-    def _on_annotated_click(self, event):
-        QTextEdit.mousePressEvent(self.annotated_display, event)
-        click_pos = self.annotated_display.cursorForPosition(event.pos()).position()
-        for display_start, display_end, ann_idx in self._annotation_char_ranges:
-            if display_start <= click_pos <= display_end:
-                items = self._annotation_to_tree_items.get(ann_idx, [])
-                if items:
-                    self.qep_tree_widget.setCurrentItem(items[0])
-                    self.qep_tree_widget.scrollToItem(items[0])
-                self._highlight_visual_node(ann_idx)
-                break
-
     def _on_tree_item_selected(self, current, previous):
-        if not current or not self._last_result:
-            return
-        for ann_idx, items in self._annotation_to_tree_items.items():
-            if current in items:
-                self._scroll_to_annotation(ann_idx)
-                self._highlight_visual_node(ann_idx)
-                break
-
-    def _on_visual_node_clicked(self, ann_idx):
-        self._scroll_to_annotation(ann_idx)
-        items = self._annotation_to_tree_items.get(ann_idx, [])
-        if items:
-            self.qep_tree_widget.setCurrentItem(items[0])
-
-    def _scroll_to_annotation(self, ann_idx):
-        for ds, de, idx in self._annotation_char_ranges:
-            if idx == ann_idx:
-                cursor = self.annotated_display.textCursor()
-                cursor.setPosition(ds)
-                cursor.setPosition(de, QTextCursor.MoveMode.KeepAnchor)
-                self.annotated_display.setTextCursor(cursor)
-                self.annotated_display.ensureCursorVisible()
-                break
-
-    def _highlight_visual_node(self, ann_idx):
-        for node in self._visual_nodes:
-            if node.annotation_index == ann_idx:
-                node.setPen(QPen(QColor(255, 50, 50), 3))
-            else:
-                node.setPen(QPen(QColor(80, 80, 80), 1.5))
+        pass
 
     # ==================================================================
     # AQP chart + table

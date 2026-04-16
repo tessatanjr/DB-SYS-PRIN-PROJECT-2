@@ -101,7 +101,7 @@ class ThemeManager:
     """Manages dark/light theme state and emits theme-aware values."""
 
     def __init__(self):
-        self.is_dark = False  # default to dark
+        self.is_dark = True
 
     @property
     def p(self):

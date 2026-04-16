@@ -1,12 +1,68 @@
 """Chat panel widget — AI Q&A with preset questions."""
 
+import re
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QLineEdit,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QTextEdit, QLineEdit,
     QPushButton, QLabel, QApplication,
 )
 from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
 
-from annotation import llm_chat
+from modules.llm import llm_chat
+
+
+def _md_to_html(text):
+    """Lightweight markdown-to-HTML for common LLM output patterns."""
+    import html as _html
+    lines = text.split("\n")
+    out = []
+    in_list = False
+    for line in lines:
+        stripped = line.strip()
+        # Headers
+        m = re.match(r"^(#{1,4})\s+(.+)$", stripped)
+        if m:
+            if in_list:
+                out.append("</ul>")
+                in_list = False
+            level = len(m.group(1))
+            sizes = {1: "16px", 2: "14px", 3: "13px", 4: "12px"}
+            out.append(f'<p style="font-size:{sizes[level]}; font-weight:700; '
+                       f'margin-top:8px; margin-bottom:4px;">'
+                       f'{_inline_fmt(_html.escape(m.group(2)))}</p>')
+            continue
+        # Bullet / numbered list
+        if re.match(r"^[-*]\s+|^\d+\.\s+", stripped):
+            item = re.sub(r"^[-*]\s+|^\d+\.\s+", "", stripped)
+            if not in_list:
+                out.append("<ul style='margin-top:2px; margin-bottom:2px;'>")
+                in_list = True
+            out.append(f"<li>{_inline_fmt(_html.escape(item))}</li>")
+            continue
+        # Close list if we leave it
+        if in_list and not stripped:
+            out.append("</ul>")
+            in_list = False
+        # Empty line
+        if not stripped:
+            out.append("<br/>")
+            continue
+        # Normal paragraph
+        if in_list:
+            out.append("</ul>")
+            in_list = False
+        out.append(f"<p style='margin:2px 0;'>{_inline_fmt(_html.escape(stripped))}</p>")
+    if in_list:
+        out.append("</ul>")
+    return "\n".join(out)
+
+
+def _inline_fmt(text):
+    """Apply inline markdown: **bold**, *italic*, `code`."""
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text)
+    text = re.sub(r"`(.+?)`", r"<code style='background:rgba(128,128,128,0.15); "
+                  r"padding:1px 4px; border-radius:3px;'>\1</code>", text)
+    return text
 
 
 CHAT_PRESETS = [
@@ -47,15 +103,15 @@ class ChatPanel(QWidget):
         self.preset_label.setFont(QFont("Segoe UI", 8))
         layout.addWidget(self.preset_label)
 
-        preset_row = QHBoxLayout()
+        preset_grid = QGridLayout()
         self.preset_buttons = []
-        for preset in CHAT_PRESETS:
+        for i, preset in enumerate(CHAT_PRESETS):
             btn = QPushButton(preset[:45] + ("..." if len(preset) > 45 else ""))
             btn.setToolTip(preset)
             btn.clicked.connect(lambda checked, q=preset: self._send_preset(q))
             self.preset_buttons.append(btn)
-            preset_row.addWidget(btn)
-        layout.addLayout(preset_row)
+            preset_grid.addWidget(btn, i // 2, i % 2)
+        layout.addLayout(preset_grid)
 
         # Input row
         input_row = QHBoxLayout()
@@ -172,10 +228,17 @@ class ChatPanel(QWidget):
         sender_fmt.setForeground(color)
         cursor.insertText(f"\n{sender}:\n", sender_fmt)
 
-        body_fmt = QTextCharFormat()
-        body_fmt.setFont(QFont("Segoe UI", 10))
-        body_fmt.setForeground(self.theme.chat_body_color())
-        cursor.insertText(f"{message}\n", body_fmt)
+        if sender == "AI":
+            body_color = self.theme.chat_body_color().name()
+            html = (f'<div style="color:{body_color}; font-family:Segoe UI; '
+                    f'font-size:10pt;">{_md_to_html(message)}</div>')
+            cursor.insertHtml(html)
+            cursor.insertText("\n")
+        else:
+            body_fmt = QTextCharFormat()
+            body_fmt.setFont(QFont("Segoe UI", 10))
+            body_fmt.setForeground(self.theme.chat_body_color())
+            cursor.insertText(f"{message}\n", body_fmt)
 
         self.chat_display.setTextCursor(cursor)
         self.chat_display.ensureCursorVisible()

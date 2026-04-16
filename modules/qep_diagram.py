@@ -1,8 +1,10 @@
 from PySide6.QtWidgets import (
     QGraphicsRectItem, QGraphicsView, QGraphicsSimpleTextItem, QGraphicsItem,
+    QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QTextEdit,
+    QApplication,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QColor, QPen, QBrush, QPainter
+from PySide6.QtGui import QFont, QColor, QPen, QBrush, QPainter, QCursor
 
 from annotation import classify_node
 from modules.constants import NODE_COLORS
@@ -142,15 +144,100 @@ class QepNodeItem(QGraphicsRectItem):
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
-        if self._callback and self.annotation_index >= 0:
-            self._callback(self.annotation_index)
+        # Close previous popup (stored on the scene to avoid per-node issues)
+        scene = self.scene()
+        if scene and hasattr(scene, '_active_popup') and scene._active_popup:
+            try:
+                scene._active_popup.hide()
+                scene._active_popup.deleteLater()
+            except RuntimeError:
+                pass
+            scene._active_popup = None
+        popup = _NodePopup(self._build_tooltip())
+        pos = QCursor.pos()
+        popup.move(pos.x() + 10, pos.y() + 10)
+        popup.show()
+        if scene:
+            scene._active_popup = popup
+
+
+class _NodePopup(QWidget):
+    """Persistent tooltip popup with a close button."""
+
+    def __init__(self, html_content):
+        super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+
+        # Theme-aware colors from the app palette
+        pal = QApplication.instance().palette()
+        bg = pal.window().color().name()
+        fg = pal.windowText().color().name()
+        border = pal.mid().color().name()
+        dim = pal.placeholderText().color().name()
+
+        self.setStyleSheet(
+            f"QWidget {{ background-color: {bg}; border: 1px solid {border}; "
+            f"border-radius: 6px; }}"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(0)
+
+        # Content with close button overlaid top-right
+        content = QTextEdit()
+        content.setReadOnly(True)
+        content.setHtml(html_content)
+        content.setStyleSheet(
+            f"QTextEdit {{ background: transparent; border: none; color: {fg}; "
+            f"font-size: 12px; }}"
+        )
+        content.setMinimumWidth(350)
+        content.setMaximumWidth(450)
+        content.setMaximumHeight(350)
+        doc = content.document()
+        doc.setTextWidth(420)
+        content.setFixedHeight(min(int(doc.size().height()) + 10, 350))
+        layout.addWidget(content)
+
+        # Close button overlaid in top-right corner
+        close_btn = QPushButton("\u2715", self)
+        close_btn.setFixedSize(28, 28)
+        close_btn.setFlat(True)
+        close_btn.setStyleSheet(
+            f"QPushButton {{ color: {dim}; font-size: 20px; border: none; background: transparent; }}"
+            f"QPushButton:hover {{ color: {fg}; }}"
+        )
+        close_btn.clicked.connect(self.close)
+        close_btn.move(self.sizeHint().width() - 34, 4)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Reposition close button on resize
+        for child in self.children():
+            if isinstance(child, QPushButton):
+                child.move(self.width() - 34, 4)
+                break
 
 
 class QepGraphicsView(QGraphicsView):
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+    def mousePressEvent(self, event):
+        # Middle-click or Ctrl+click to pan
+        if (event.button() == Qt.MouseButton.MiddleButton or
+                event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
