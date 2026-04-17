@@ -158,14 +158,6 @@ class MainWindow(QMainWindow):
         self.qep_visual_view = QepGraphicsView(self.qep_scene)
         self.right_tabs.addTab(self.qep_visual_view, "QEP Diagram")
 
-        # Tab: QEP Tree
-        self.qep_tree_widget = QTreeWidget()
-        self.qep_tree_widget.setHeaderLabels(["Operator", "Detail", "Cost", "Rows"])
-        self.qep_tree_widget.setColumnWidth(0, 200)
-        self.qep_tree_widget.setColumnWidth(1, 250)
-        self.qep_tree_widget.currentItemChanged.connect(self._on_tree_item_selected)
-        self.right_tabs.addTab(self.qep_tree_widget, "QEP Tree")
-
         # Tab: AQP Comparison (chart + table)
         aqp_tab = QWidget()
         aqp_layout = QVBoxLayout(aqp_tab)
@@ -175,14 +167,21 @@ class MainWindow(QMainWindow):
         from PySide6.QtGui import QPainter
         self.aqp_chart_view = QGraphicsView(self.aqp_chart_scene)
         self.aqp_chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.aqp_chart_view.setMaximumHeight(220)
-        aqp_layout.addWidget(self.aqp_chart_view)
+        aqp_layout.addWidget(self.aqp_chart_view, 1)
         aqp_layout.addWidget(QLabel("Detail Table:", font=QFont("Segoe UI", 9, QFont.Bold)))
         self.aqp_tree_widget = QTreeWidget()
         self.aqp_tree_widget.setHeaderLabels(["Disabled Operator(s)", "AQP Cost", "QEP Cost", "Cost Ratio"])
         self.aqp_tree_widget.setColumnWidth(0, 250)
-        aqp_layout.addWidget(self.aqp_tree_widget)
+        aqp_layout.addWidget(self.aqp_tree_widget, 1)
         self.right_tabs.addTab(aqp_tab, "AQP Comparison")
+
+        # Tab: QEP Tree
+        self.qep_tree_widget = QTreeWidget()
+        self.qep_tree_widget.setHeaderLabels(["Operator", "Detail", "Cost", "Rows"])
+        self.qep_tree_widget.setColumnWidth(0, 200)
+        self.qep_tree_widget.setColumnWidth(1, 250)
+        self.qep_tree_widget.currentItemChanged.connect(self._on_tree_item_selected)
+        self.right_tabs.addTab(self.qep_tree_widget, "QEP Tree")
 
         # Tab: QEP Text
         self.qep_text_display = QPlainTextEdit()
@@ -429,13 +428,35 @@ class MainWindow(QMainWindow):
             algo_text.setFont(QFont("Segoe UI", 9))
             algo_text.setForeground(t.algo_text_color())
 
-            cursor.insertText("  Analysis: ", algo_label)
-            char_offset += len("  Analysis: ")
-            for a in template:
-                for sentence in a.split("\n"):
-                    if sentence.strip():
-                        cursor.insertText(f"  • {sentence.strip()}\n", algo_text)
-                char_offset += len(a) + 1
+            cursor.insertText("  Analysis:\n", algo_label)
+            char_offset += len("  Analysis:\n")
+
+            bold_fmt = QTextCharFormat()
+            bold_fmt.setFont(QFont("Segoe UI", 9, QFont.Bold))
+            bold_fmt.setForeground(t.algo_text_color())
+
+            for i, a in enumerate(template):
+                lines = [s.strip() for s in a.split("\n") if s.strip()]
+                if not lines:
+                    continue
+                # Numbered header (first line bold)
+                header = f"{i + 1}. {lines[0]}"
+                cursor.insertText(f"{header}\n", bold_fmt)
+                char_offset += len(header) + 1
+                # Remaining lines — bold label prefix if present
+                for line in lines[1:]:
+                    # Detect label prefixes like "Filter applied:", "Alternatives:", "Cost:"
+                    colon_pos = line.find(":")
+                    if colon_pos != -1 and colon_pos < 25:
+                        label_part = line[:colon_pos + 1]
+                        rest_part = line[colon_pos + 1:]
+                        cursor.insertText(label_part, bold_fmt)
+                        cursor.insertText(f"{rest_part}\n", algo_text)
+                    else:
+                        cursor.insertText(f"{line}\n", algo_text)
+                    char_offset += len(line) + 1
+                cursor.insertText("\n", sql_fmt)
+                char_offset += 1
             cursor.insertText("\n", sql_fmt)
             char_offset += 1
 
@@ -449,13 +470,13 @@ class MainWindow(QMainWindow):
                 llm_text.setFont(QFont("Segoe UI", 9))
                 llm_text.setForeground(t.llm_text_color())
 
-                cursor.insertText("  AI Insight: ", llm_label)
-                char_offset += len("  AI Insight: ")
+                cursor.insertText("  AI Insight:\n", llm_label)
+                char_offset += len("  AI Insight:\n")
                 for a in llm_anns:
-                    for sentence in a.split("\n"):
-                        if sentence.strip():
-                            cursor.insertText(f"  • {sentence.strip()}\n", llm_text)
-                    char_offset += len(a) + 1
+                    text = a.strip()
+                    if text:
+                        cursor.insertText(f"  {text}\n\n", llm_text)
+                    char_offset += len(a) + 2
                 cursor.insertText("\n", sql_fmt)
                 char_offset += 1
 
@@ -467,6 +488,7 @@ class MainWindow(QMainWindow):
 
         if pos < len(sql):
             cursor.insertText(sql[pos:], sql_fmt)
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
         self.annotated_display.setTextCursor(cursor)
 
     # ==================================================================

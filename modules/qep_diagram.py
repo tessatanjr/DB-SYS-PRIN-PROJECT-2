@@ -30,8 +30,7 @@ class QepNodeItem(QGraphicsRectItem):
         self.setBrush(QBrush(color))
         self.setPen(QPen(QColor(80, 80, 80), 1.5))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setAcceptHoverEvents(True)
-        self.setToolTip(self._build_tooltip())
+        self.setAcceptHoverEvents(False)
 
         # Line 1: node type (bold)
         title = QGraphicsSimpleTextItem(node_type, self)
@@ -186,14 +185,13 @@ class _NodePopup(QWidget):
 
         # Theme-aware colors from the app palette
         pal = QApplication.instance().palette()
-        bg = pal.window().color().name()
+        base = pal.window().color()
+        is_dark = base.lightness() < 128
+        bg = base.lighter(130).name() if is_dark else base.darker(105).name()
         fg = pal.windowText().color().name()
         border = pal.mid().color().name()
         dim = pal.placeholderText().color().name()
-
-        # Slightly lighter/darker bar color for the drag handle
-        base = pal.window().color()
-        handle_rgb = base.lighter(115).name() if base.lightness() < 128 else base.darker(110).name()
+        handle_rgb = base.lighter(150).name() if is_dark else base.darker(115).name()
 
         self.setStyleSheet(
             f"QWidget#nodePopup {{ background-color: {bg}; border: 1px solid {border}; "
@@ -233,7 +231,7 @@ class _NodePopup(QWidget):
         handle_layout.addWidget(close_btn)
         layout.addWidget(handle)
 
-        # Content
+        # Content — resizable vertically
         content = QTextEdit()
         content.setReadOnly(True)
         content.setHtml(html_content)
@@ -243,11 +241,27 @@ class _NodePopup(QWidget):
         )
         content.setMinimumWidth(350)
         content.setMaximumWidth(450)
-        content.setMaximumHeight(350)
+        content.setMinimumHeight(80)
         doc = content.document()
         doc.setTextWidth(420)
-        content.setFixedHeight(min(int(doc.size().height()) + 10, 350))
+        initial_height = min(int(doc.size().height()) + 10, 300)
+        content.setFixedHeight(initial_height)
+        self._content = content
         layout.addWidget(content)
+
+        # Resize grip at bottom
+        self._resize_pos = None
+        grip_bottom = QWidget()
+        grip_bottom.setFixedHeight(8)
+        grip_bottom.setCursor(Qt.CursorShape.SizeVerCursor)
+        grip_bottom.setStyleSheet(
+            f"background-color: {handle_rgb}; border: none; "
+            f"border-bottom-left-radius: 6px; border-bottom-right-radius: 6px;"
+        )
+        grip_bottom.mousePressEvent = self._grip_press
+        grip_bottom.mouseMoveEvent = self._grip_move
+        grip_bottom.mouseReleaseEvent = self._grip_release
+        layout.addWidget(grip_bottom)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -263,12 +277,39 @@ class _NodePopup(QWidget):
         self._drag_pos = None
         super().mouseReleaseEvent(event)
 
+    def _grip_press(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._resize_pos = event.globalPosition().toPoint()
+
+    def _grip_move(self, event):
+        if self._resize_pos and event.buttons() & Qt.MouseButton.LeftButton:
+            delta = event.globalPosition().toPoint().y() - self._resize_pos.y()
+            new_h = self._content.height() + delta
+            if new_h >= 80:
+                self._content.setFixedHeight(new_h)
+                self.adjustSize()
+                self._resize_pos = event.globalPosition().toPoint()
+
+    def _grip_release(self, event):
+        self._resize_pos = None
+
 
 class QepGraphicsView(QGraphicsView):
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
+
+        # Hint label
+        self._hint = QLabel("Click on a node to view details", self)
+        self._hint.setStyleSheet(
+            "color: #888; font-size: 10px; background: transparent; padding: 4px 8px;"
+        )
+        self._hint.adjustSize()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._hint.move(8, self.height() - self._hint.height() - 4)
 
     def mousePressEvent(self, event):
         # Middle-click or Ctrl+click to pan
