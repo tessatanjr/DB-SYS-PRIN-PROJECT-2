@@ -1,0 +1,35 @@
+<svg viewBox="0 0 64 69" width="64" height="69" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>LEBRON Assistant bot icon</title>
+<desc>Grayscale robot face icon for LEBRON Assistant chat panel</desc>
+
+<!-- Antenna -->
+<line x1="32" y1="6" x2="32" y2="14" stroke="#888" stroke-width="2" stroke-linecap="round"/>
+<circle cx="32" cy="5" r="3" fill="#aaa" stroke="#777" stroke-width="1"/>
+
+<!-- Head -->
+<rect x="12" y="14" width="40" height="30" rx="6" fill="#c8c8c8" stroke="#888" stroke-width="1.5"/>
+
+<!-- Eyes -->
+<rect x="19" y="22" width="10" height="8" rx="3" fill="#555"/>
+<rect x="35" y="22" width="10" height="8" rx="3" fill="#555"/>
+<!-- Eye shine -->
+<circle cx="22" cy="24.5" r="1.5" fill="#ddd"/>
+<circle cx="38" cy="24.5" r="1.5" fill="#ddd"/>
+
+<!-- Mouth -->
+<rect x="20" y="34" width="24" height="5" rx="2.5" fill="#888"/>
+<!-- Mouth slots -->
+<rect x="24" y="34" width="3" height="5" rx="1" fill="#c8c8c8"/>
+<rect x="30.5" y="34" width="3" height="5" rx="1" fill="#c8c8c8"/>
+<rect x="37" y="34" width="3" height="5" rx="1" fill="#c8c8c8"/>
+
+<!-- Neck -->
+<rect x="27" y="44" width="10" height="5" rx="2" fill="#aaa" stroke="#888" stroke-width="1"/>
+
+<!-- Body -->
+<rect x="16" y="49" width="32" height="10" rx="5" fill="#b0b0b0" stroke="#888" stroke-width="1.5"/>
+
+<!-- Ear bolts -->
+<circle cx="12" cy="29" r="3.5" fill="#b0b0b0" stroke="#888" stroke-width="1"/>
+<circle cx="52" cy="29" r="3.5" fill="#b0b0b0" stroke="#888" stroke-width="1"/>
+</svg>

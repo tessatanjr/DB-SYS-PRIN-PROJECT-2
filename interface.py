@@ -26,7 +26,7 @@ from modules.export import export_results
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("SQL Query Plan Annotator \u2014 SC3020 Project 2 Group 6")
+        self.setWindowTitle("LEBRON \u2014 Logical Execution Breakdown for Relational Operations & Nodes")
         self.setMinimumSize(1200, 750)
         self._last_result = None
         self.theme = ThemeManager()
@@ -110,6 +110,7 @@ class MainWindow(QMainWindow):
         self.query_input.setPlaceholderText("Paste your SQL query here, or select an example above…")
         self.query_input.setMinimumHeight(110)
         self._sql_highlighter = SqlSyntaxHighlighter(self.query_input.document())
+        self._sql_highlighter.set_dark(self.theme.is_dark)
         left_layout.addWidget(self.query_input)
 
         # Buttons row
@@ -204,7 +205,7 @@ class MainWindow(QMainWindow):
         left_v_splitter.addWidget(left)
         left_v_splitter.addWidget(self.chat_panel)
         left_v_splitter.setStretchFactor(0, 1)
-        left_v_splitter.setStretchFactor(1, 2)
+        left_v_splitter.setStretchFactor(1, 1)
         left_v_splitter.setChildrenCollapsible(False)
 
         # Horizontal split: left column | QEP tabs (full height)
@@ -242,6 +243,7 @@ class MainWindow(QMainWindow):
     # Status callbacks from SettingsPanel
     # ==================================================================
     def _on_db_status(self, connected, msg):
+        self._db_connected = connected
         if connected:
             self.db_status_label.setText("● DB Connected")
             self.db_status_label.setProperty("state", "ok")
@@ -251,6 +253,7 @@ class MainWindow(QMainWindow):
         self.db_status_label.style().unpolish(self.db_status_label)
         self.db_status_label.style().polish(self.db_status_label)
         self.statusBar().showMessage(msg)
+        self._auto_hide_settings()
 
     def _on_llm_status(self, status, color):
         self.llm_status_label.setText(f"● LLM {status}")
@@ -258,11 +261,16 @@ class MainWindow(QMainWindow):
         state = "ok" if "4CAF50" in color.upper() or color.lower() in ("#3ecf8e", "#16a06a") else (
             "err" if "F44336" in color.upper() or color.lower() in ("#f87171", "#c03030") else "warn"
         )
+        self._llm_connected = state == "ok"
         self.llm_status_label.setProperty("state", state)
         self.llm_status_label.style().unpolish(self.llm_status_label)
         self.llm_status_label.style().polish(self.llm_status_label)
-        # Auto-hide settings once LLM is online
-        if state == "ok" and self.settings_panel.isVisible():
+        self._auto_hide_settings()
+
+    def _auto_hide_settings(self):
+        if (getattr(self, '_db_connected', False)
+                and getattr(self, '_llm_connected', False)
+                and self.settings_panel.isVisible()):
             self.settings_panel.setVisible(False)
             self.btn_toggle_settings.setText("\u25B6 Show Settings")
 

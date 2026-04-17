@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QTextEdit, QLineEdit,
     QPushButton, QLabel, QApplication,
 )
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
 
 from modules.llm import llm_chat
@@ -15,44 +16,35 @@ def _md_to_html(text):
     import html as _html
     lines = text.split("\n")
     out = []
-    in_list = False
     for line in lines:
         stripped = line.strip()
         # Headers
         m = re.match(r"^(#{1,4})\s+(.+)$", stripped)
         if m:
-            if in_list:
-                out.append("</ul>")
-                in_list = False
             level = len(m.group(1))
             sizes = {1: "16px", 2: "14px", 3: "13px", 4: "12px"}
             out.append(f'<p style="font-size:{sizes[level]}; font-weight:700; '
                        f'margin-top:8px; margin-bottom:4px;">'
                        f'{_inline_fmt(_html.escape(m.group(2)))}</p>')
             continue
-        # Bullet / numbered list
-        if re.match(r"^[-*]\s+|^\d+\.\s+", stripped):
-            item = re.sub(r"^[-*]\s+|^\d+\.\s+", "", stripped)
-            if not in_list:
-                out.append("<ul style='margin-top:2px; margin-bottom:2px;'>")
-                in_list = True
-            out.append(f"<li>{_inline_fmt(_html.escape(item))}</li>")
+        # Bullet / numbered list — render as indented paragraph with bullet char
+        bm = re.match(r"^[-*]\s+(.+)$", stripped)
+        nm = re.match(r"^(\d+)\.\s+(.+)$", stripped) if not bm else None
+        if bm:
+            item = bm.group(1)
+            out.append(f"<p style='margin:1px 0; margin-left:16px;'>"
+                       f"\u2022 {_inline_fmt(_html.escape(item))}</p>")
             continue
-        # Close list if we leave it
-        if in_list and not stripped:
-            out.append("</ul>")
-            in_list = False
-        # Empty line
+        if nm:
+            item = nm.group(2)
+            out.append(f"<p style='margin:1px 0; margin-left:16px;'>"
+                       f"{nm.group(1)}. {_inline_fmt(_html.escape(item))}</p>")
+            continue
+        # Empty line — skip (paragraph margins handle spacing)
         if not stripped:
-            out.append("<br/>")
             continue
         # Normal paragraph
-        if in_list:
-            out.append("</ul>")
-            in_list = False
         out.append(f"<p style='margin:2px 0;'>{_inline_fmt(_html.escape(stripped))}</p>")
-    if in_list:
-        out.append("</ul>")
     return "\n".join(out)
 
 
@@ -88,14 +80,42 @@ class ChatPanel(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        # Chat display
+        # Welcome screen
+        import os
+        from PySide6.QtSvgWidgets import QSvgWidget
+        self._welcome_widget = QWidget()
+        welcome_layout = QVBoxLayout(self._welcome_widget)
+        welcome_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        welcome_layout.setSpacing(4)
+        welcome_layout.addStretch()
+
+        icon = QSvgWidget(os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "bot_icon.svg"))
+        icon.setFixedSize(48, 52)
+        icon.setStyleSheet("background: transparent;")
+        icon_row = QHBoxLayout()
+        icon_row.addStretch()
+        icon_row.addWidget(icon)
+        icon_row.addStretch()
+        welcome_layout.addLayout(icon_row)
+
+        title = QLabel("LEBRON Assistant")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("color: #888; font-size: 16px; font-weight: 700; background: transparent;")
+        welcome_layout.addWidget(title)
+
+        subtitle = QLabel("Ask a question below or select a quick\nquestion to explore the query plan")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet("color: #888; font-size: 11px; background: transparent;")
+        welcome_layout.addWidget(subtitle)
+
+        welcome_layout.addStretch()
+        layout.addWidget(self._welcome_widget)
+
+        # Chat display (hidden until first message)
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
         self.chat_display.setFont(QFont("Segoe UI", 10))
-        self.chat_display.setPlaceholderText(
-            "Ask questions about the query plan here.\n"
-            "Run an analysis first, then type your question below."
-        )
+        self.chat_display.setVisible(False)
         layout.addWidget(self.chat_display)
 
         # Preset question buttons
@@ -144,7 +164,7 @@ class ChatPanel(QWidget):
         """Set the analysis result for chat context. Clears history."""
         self._last_result = result
         self._chat_history = []
-        self.chat_display.clear()
+        self._set_welcome_message()
 
     def set_status_callback(self, callback):
         """Set a callback(str) for status bar messages."""
@@ -152,7 +172,12 @@ class ChatPanel(QWidget):
 
     def clear_chat(self):
         self._chat_history = []
+        self._set_welcome_message()
+
+    def _set_welcome_message(self):
         self.chat_display.clear()
+        self.chat_display.setVisible(False)
+        self._welcome_widget.setVisible(True)
 
     def apply_theme(self):
         """Update all theme-dependent styles."""
@@ -171,7 +196,7 @@ class ChatPanel(QWidget):
             if msg["role"] == "user":
                 self._append("You", msg["content"], self.theme.chat_you_color())
             else:
-                self._append("AI", msg["content"], self.theme.chat_ai_color())
+                self._append("LEBRON Assistant", msg["content"], self.theme.chat_ai_color())
 
     # ------------------------------------------------------------------
     # Internal
@@ -211,7 +236,7 @@ class ChatPanel(QWidget):
         self._chat_history.append({"role": "user", "content": user_msg})
         self._chat_history.append({"role": "assistant", "content": response})
 
-        self._append("AI", response, self.theme.chat_ai_color())
+        self._append("LEBRON Assistant", response, self.theme.chat_ai_color())
 
         self.chat_input.setEnabled(True)
         self.btn_send.setEnabled(True)
@@ -220,6 +245,8 @@ class ChatPanel(QWidget):
             self._status_callback("Ready")
 
     def _append(self, sender, message, color):
+        self._welcome_widget.setVisible(False)
+        self.chat_display.setVisible(True)
         cursor = self.chat_display.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
@@ -228,7 +255,7 @@ class ChatPanel(QWidget):
         sender_fmt.setForeground(color)
         cursor.insertText(f"\n{sender}:\n", sender_fmt)
 
-        if sender == "AI":
+        if sender == "LEBRON Assistant":
             body_color = self.theme.chat_body_color().name()
             html = (f'<div style="color:{body_color}; font-family:Segoe UI; '
                     f'font-size:10pt;">{_md_to_html(message)}</div>')

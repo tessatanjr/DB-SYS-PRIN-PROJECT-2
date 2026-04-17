@@ -63,7 +63,7 @@ class SettingsPanel(QWidget):
             ("Port", self.input_port, 1),
             ("DB", self.input_dbname, 2),
             ("User", self.input_user, 2),
-            ("Pass", self.input_password, 2),
+            ("Password", self.input_password, 2),
         ]:
             col, _ = _field_column(label, widget)
             db_row.addLayout(col, stretch)

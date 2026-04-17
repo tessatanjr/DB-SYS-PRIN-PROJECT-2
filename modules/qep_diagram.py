@@ -154,8 +154,23 @@ class QepNodeItem(QGraphicsRectItem):
                 pass
             scene._active_popup = None
         popup = _NodePopup(self._build_tooltip())
-        pos = QCursor.pos()
-        popup.move(pos.x() + 10, pos.y() + 10)
+        popup.adjustSize()
+        cursor_pos = QCursor.pos()
+        # Smart positioning: keep popup within screen bounds
+        screen = QApplication.screenAt(cursor_pos)
+        if screen:
+            screen_rect = screen.availableGeometry()
+            x = cursor_pos.x() + 10
+            y = cursor_pos.y() + 10
+            if x + popup.width() > screen_rect.right():
+                x = cursor_pos.x() - popup.width() - 10
+            if y + popup.height() > screen_rect.bottom():
+                y = cursor_pos.y() - popup.height() - 10
+            x = max(x, screen_rect.left())
+            y = max(y, screen_rect.top())
+            popup.move(x, y)
+        else:
+            popup.move(cursor_pos.x() + 10, cursor_pos.y() + 10)
         popup.show()
         if scene:
             scene._active_popup = popup
@@ -167,6 +182,7 @@ class _NodePopup(QWidget):
     def __init__(self, html_content):
         super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self._drag_pos = None
 
         # Theme-aware colors from the app palette
         pal = QApplication.instance().palette()
@@ -175,16 +191,49 @@ class _NodePopup(QWidget):
         border = pal.mid().color().name()
         dim = pal.placeholderText().color().name()
 
+        # Slightly lighter/darker bar color for the drag handle
+        base = pal.window().color()
+        handle_rgb = base.lighter(115).name() if base.lightness() < 128 else base.darker(110).name()
+
         self.setStyleSheet(
-            f"QWidget {{ background-color: {bg}; border: 1px solid {border}; "
+            f"QWidget#nodePopup {{ background-color: {bg}; border: 1px solid {border}; "
             f"border-radius: 6px; }}"
         )
+        self.setObjectName("nodePopup")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Content with close button overlaid top-right
+        # Drag handle bar with close button
+        handle = QWidget()
+        handle.setFixedHeight(24)
+        handle.setStyleSheet(
+            f"background-color: {handle_rgb}; border: none; "
+            f"border-top-left-radius: 6px; border-top-right-radius: 6px;"
+        )
+        handle.setCursor(Qt.CursorShape.SizeAllCursor)
+        handle_layout = QHBoxLayout(handle)
+        handle_layout.setContentsMargins(8, 0, 4, 0)
+        handle_layout.setSpacing(0)
+
+        grip_label = QLabel("\u2261")
+        grip_label.setStyleSheet(f"color: {dim}; font-size: 14px; background: transparent; border: none;")
+        handle_layout.addWidget(grip_label)
+        handle_layout.addStretch()
+
+        close_btn = QPushButton("\u2715")
+        close_btn.setFixedSize(22, 22)
+        close_btn.setFlat(True)
+        close_btn.setStyleSheet(
+            f"QPushButton {{ color: {dim}; font-size: 16px; border: none; background: transparent; }}"
+            f"QPushButton:hover {{ color: {fg}; }}"
+        )
+        close_btn.clicked.connect(self.close)
+        handle_layout.addWidget(close_btn)
+        layout.addWidget(handle)
+
+        # Content
         content = QTextEdit()
         content.setReadOnly(True)
         content.setHtml(html_content)
@@ -200,24 +249,19 @@ class _NodePopup(QWidget):
         content.setFixedHeight(min(int(doc.size().height()) + 10, 350))
         layout.addWidget(content)
 
-        # Close button overlaid in top-right corner
-        close_btn = QPushButton("\u2715", self)
-        close_btn.setFixedSize(28, 28)
-        close_btn.setFlat(True)
-        close_btn.setStyleSheet(
-            f"QPushButton {{ color: {dim}; font-size: 20px; border: none; background: transparent; }}"
-            f"QPushButton:hover {{ color: {fg}; }}"
-        )
-        close_btn.clicked.connect(self.close)
-        close_btn.move(self.sizeHint().width() - 34, 4)
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+        super().mousePressEvent(event)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        # Reposition close button on resize
-        for child in self.children():
-            if isinstance(child, QPushButton):
-                child.move(self.width() - 34, 4)
-                break
+    def mouseMoveEvent(self, event):
+        if self._drag_pos and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
 
 class QepGraphicsView(QGraphicsView):

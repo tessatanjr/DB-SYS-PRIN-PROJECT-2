@@ -1,10 +1,10 @@
 import psycopg2
 import json
 
-# Database connection configuration
+# Database connection configuration - just a fallback; should be defined by user in app.
 DB_CONFIG = {
     "host": "localhost",
-    "port": 5433,
+    "port": 5432,
     "dbname": "TPC-H",
     "user": "postgres",
     "password": "qwerty"
