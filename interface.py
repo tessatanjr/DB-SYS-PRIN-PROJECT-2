@@ -475,7 +475,7 @@ class MainWindow(QMainWindow):
                 for a in llm_anns:
                     text = a.strip()
                     if text:
-                        cursor.insertText(f"  {text}\n\n", llm_text)
+                        cursor.insertText(f"{text}\n\n", llm_text)
                     char_offset += len(a) + 2
                 cursor.insertText("\n", sql_fmt)
                 char_offset += 1
