@@ -1,7 +1,6 @@
-import os
 import re
 import copy
-from preprocessing import connect_db, get_qep, get_all_aqps, extract_cost, close_db
+from preprocessing import get_qep, get_all_aqps, extract_cost
 from modules.llm import llm_enhance_annotations
 
 
@@ -346,9 +345,6 @@ def _format_scan_annotation(scan, aqp_comparisons):
         recheck = scan["recheck_cond"]
         if recheck:
             lines.append(f"Recheck condition: {recheck}")
-
-    elif node_type == "Bitmap Index Scan":
-        return ""  # skip, handled by parent Bitmap Heap Scan
 
     else:
         lines.append(f"Table {label} is accessed via {node_type.lower()}.")
@@ -704,8 +700,6 @@ def generate_annotations(conn, sql_query, use_llm=True):
     """
     # 1. Get QEP
     qep = get_qep(conn, sql_query)
-    if not qep:
-        return {"error": "Failed to retrieve QEP."}
 
     # 2. Extract operators from QEP
     operators = extract_operators(qep["json"])
@@ -741,7 +735,6 @@ def generate_annotations(conn, sql_query, use_llm=True):
     # 5. Optionally enhance annotations with LLM
     llm_used = False
     if use_llm:
-        import copy
         llm_annotations = copy.deepcopy(annotations)
         llm_annotations = llm_enhance_annotations(
             sql_query, operators, aqp_comparisons, llm_annotations
@@ -763,35 +756,3 @@ def generate_annotations(conn, sql_query, use_llm=True):
         "total_cost":      qep_cost,
         "llm_used":        llm_used,
     }
-
-
-# ---------------------------------------------------------------------------
-# Quick test (remove or guard behind __main__ later)
-# ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    conn = connect_db()
-    if conn:
-        test_query = (
-            "SELECT * FROM customer C, orders O "
-            "WHERE C.c_custkey = O.o_custkey"
-        )
-        result = generate_annotations(conn, test_query)
-
-        if "error" in result:
-            print(result["error"])
-        else:
-            print(f"QEP Total Cost: {result['total_cost']}")
-            print(f"\n{'='*60}")
-            print("ANNOTATIONS:")
-            print(f"{'='*60}")
-            for ann in result["annotations"]:
-                print(f"\n[{ann['clause']}] {ann['sql_text']}")
-                for a in ann["annotations"]:
-                    print(f"  -> {a}")
-            print(f"\n{'='*60}")
-            print("AQP Cost Comparisons:")
-            for c in result["aqp_comparisons"]:
-                print(f"  Disabled {c['operator_name']}: "
-                      f"cost={c['aqp_cost']:.1f}, ratio={c['cost_ratio']}x")
-
-        close_db(conn)

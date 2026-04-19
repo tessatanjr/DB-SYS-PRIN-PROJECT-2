@@ -6,14 +6,16 @@ from openai import OpenAI
 from anthropic import AnthropicFoundry
 
 
-# Provider presets: (default_endpoint, models_list, needs_api_key)
+# Provider presets: (default_endpoint, models_list, needs_api_key, default_api_key)
 PROVIDER_PRESETS = {
     "OpenAI":  ("https://sc3020-db.openai.azure.com/openai/v1/",
-                ["gpt-4.1-nano", "gpt-5-nano", "gpt-5.4-nano"], True),
+                ["gpt-4.1-nano", "gpt-5-nano", "gpt-5.4-nano"], True,
+                "XXXPLACEHOLDERXXX"),
     "Claude":  ("https://sc3020-claude-resource.openai.azure.com/anthropic",
-                ["claude-haiku-4-5"], True),
+                ["claude-haiku-4-5"], True,
+                "XXXPLACEHOLDERXXX"),
     "Ollama":  ("http://localhost:11434/v1/",
-                [], False),
+                [], False, ""),
 }
 
 # Module-level LLM config — set via set_llm_config() from the GUI
@@ -78,6 +80,15 @@ def _chat_completion(client, model, messages, temperature=0.4, max_tokens=1000):
         return response.choices[0].message.content.strip()
 
 
+def test_connection():
+    """Test the LLM connection. Returns True on success, raises on failure."""
+    client, model = _get_llm_client()
+    if not client:
+        raise Exception("Client not created — check provider, endpoint, and API key")
+    _chat_completion(client, model, messages=[{"role": "user", "content": "Reply with OK"}])
+    return True
+
+
 def llm_enhance_annotations(sql_query, operators, aqp_comparisons, annotations):
     client, deployment = _get_llm_client()
     if not client:
@@ -102,7 +113,8 @@ def llm_enhance_annotations(sql_query, operators, aqp_comparisons, annotations):
         "- Explain HOW each part of the query is executed (scan type, join algorithm, etc.)\n"
         "- Explain WHY the optimizer chose that operator over alternatives, using cost ratios\n"
         "- Keep each annotation to 1-3 sentences, be specific with numbers\n"
-        "- Do NOT add information not supported by the data\n"
+        "- Do NOT add information not supported by the data. Reference only table names, \n"
+        "  operator types, and cost figures present in the provided data\n"
         "- Use plain English understandable by someone learning databases\n\n"
         "Return ONLY a valid JSON array where each element has:\n"
         '  {"clause": "<clause name>", "annotations": ["<rewritten annotation 1>", ...]}\n\n'
@@ -157,8 +169,10 @@ def llm_chat(user_message, sql_query, qep_text, operators, aqp_comparisons, chat
         "query execution plan (QEP), operator details, and alternative plan "
         "cost comparisons. Answer the user's questions about the query, its "
         "execution plan, performance, and possible optimizations.\n\n"
-        "Be concise, specific, and reference actual costs/operators from the data. "
-        "If the user asks something unrelated to the query plan, politely redirect.\n\n"
+        "Be concise, specific, and reference actual costs/operators from the data.\n"
+        "Do not speculate about query performance beyond what the cost figures indicate.\n"
+        "If the user asks something unrelated to the query plan, politely redirect "
+        "and offer to answer questions about the current query plan instead.\n\n"
         f"=== SQL QUERY ===\n{sql_query}\n\n"
         f"=== QEP (TEXT) ===\n{qep_text}\n\n"
         f"=== OPERATORS ===\n{json.dumps(operators, default=str)}\n\n"

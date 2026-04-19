@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont
 
 from preprocessing import connect_db, close_db
-from modules.llm import set_llm_config, _get_llm_client, _chat_completion, PROVIDER_PRESETS
+from modules.llm import set_llm_config, test_connection, PROVIDER_PRESETS
 
 
 class SettingsPanel(QWidget):
@@ -53,8 +53,9 @@ class SettingsPanel(QWidget):
         self.input_port = QLineEdit("5432")
         self.input_dbname = QLineEdit("TPC-H")
         self.input_user = QLineEdit("postgres")
-        self.input_password = QLineEdit("qwerty")
+        self.input_password = QLineEdit()
         self.input_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.input_password.setPlaceholderText("Enter password...")
         self.btn_connect = QPushButton("Connect")
         self.btn_connect.clicked.connect(self.connect_db)
 
@@ -117,7 +118,7 @@ class SettingsPanel(QWidget):
         api_key_label = QLabel("API Key")
         api_key_label.setProperty("fieldLabel", True)
         api_key_layout.addWidget(api_key_label)
-        self.input_llm_api_key = QLineEdit()
+        self.input_llm_api_key = QLineEdit(PROVIDER_PRESETS["OpenAI"][3])
         self.input_llm_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.input_llm_api_key.setPlaceholderText("Enter API key here...")
         api_key_layout.addWidget(self.input_llm_api_key)
@@ -135,14 +136,13 @@ class SettingsPanel(QWidget):
         llm_row.addLayout(btn_col2, 0)
 
         layout.addWidget(self.llm_group)
-        self.apply_theme()
 
     def _on_provider_changed(self, provider_text):
         """Auto-fill endpoint and model defaults when provider changes."""
         preset = PROVIDER_PRESETS.get(provider_text)
         if not preset:
             return
-        endpoint, models, needs_key = preset
+        endpoint, models, needs_key, default_key = preset
         is_ollama = provider_text == "Ollama"
         self.input_llm_endpoint.setText(endpoint)
         self.input_llm_endpoint.setReadOnly(True)
@@ -153,8 +153,9 @@ class SettingsPanel(QWidget):
         if is_ollama:
             self.input_llm_deployment.setEditText("")
             self.input_llm_deployment.lineEdit().setPlaceholderText("e.g. llama3.2:latest")
-        # Hide API key field for Ollama
+        # Hide API key field for Ollama, auto-fill key
         self.api_key_container.setVisible(not is_ollama)
+        self.input_llm_api_key.setText(default_key)
         self.input_llm_api_key.setPlaceholderText(
             "Enter API key here..." if needs_key else "Not required"
         )
@@ -174,17 +175,20 @@ class SettingsPanel(QWidget):
     def connect_db(self):
         if self.conn:
             close_db(self.conn)
+            self.conn = None
         config = self.get_db_config()
-        self.conn = connect_db(config)
-        if self.conn:
+        try:
+            self.conn = connect_db(config)
             if self._on_db_status:
                 self._on_db_status(True, f"Connected to {config['dbname']}@{config['host']}:{config['port']}")
-        else:
+        except Exception as e:
             if self._on_db_status:
                 self._on_db_status(False, "Connection failed")
+            # Clean up psycopg2's multi-line formatting
+            msg = " ".join(str(e).split())
             QMessageBox.warning(
                 self, "Connection Error",
-                "Could not connect to the database. Check your settings."
+                f"Could not connect to the database:\n\n{msg}"
             )
 
     def connect_llm(self):
@@ -215,18 +219,11 @@ class SettingsPanel(QWidget):
         QApplication.processEvents()
 
         try:
-            client, model = _get_llm_client()
-            if client:
-                _chat_completion(
-                    client, model,
-                    messages=[{"role": "user", "content": "Reply with OK"}],
-                )
-                if self._on_llm_status:
-                    self._on_llm_status("Online", "#4CAF50")
-                if self._status_callback:
-                    self._status_callback("LLM connected successfully")
-            else:
-                raise Exception("Client not created")
+            test_connection()
+            if self._on_llm_status:
+                self._on_llm_status("Online", "#4CAF50")
+            if self._status_callback:
+                self._status_callback("LLM connected successfully")
         except Exception as e:
             if self._on_llm_status:
                 self._on_llm_status("Failed", "#F44336")
@@ -239,10 +236,6 @@ class SettingsPanel(QWidget):
         finally:
             self.btn_llm_connect.setEnabled(True)
             self.btn_llm_connect.setText("Connect LLM")
-
-    def apply_theme(self):
-        """Update field styles for current theme."""
-        pass
 
     def close_connection(self):
         if self.conn:

@@ -9,9 +9,10 @@ from PySide6.QtWidgets import (
     QTextEdit, QPushButton, QLabel, QSplitter, QTabWidget, QTreeWidget,
     QTreeWidgetItem, QPlainTextEdit, QComboBox, QCheckBox, QMessageBox,
     QGraphicsScene, QGraphicsLineItem, QGraphicsSimpleTextItem,
+    QGraphicsView,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor, QPen, QBrush
+from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor, QPen, QBrush, QPainter
 
 from annotation import generate_annotations, get_root_plan, classify_node
 from modules.constants import HIGHLIGHT_COLORS, EXAMPLE_QUERIES
@@ -30,12 +31,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1200, 750)
         self._last_result = None
         self.theme = ThemeManager()
-
-        # Linking data for bidirectional clicking
-        self._annotation_char_ranges = []
-        self._tree_items_by_relation = {}
         self._visual_nodes = []
-        self._annotation_to_tree_items = {}
 
         self._build_ui()
         self.settings_panel.connect_db()
@@ -164,8 +160,6 @@ class MainWindow(QMainWindow):
         aqp_layout = QVBoxLayout(aqp_tab)
         aqp_layout.addWidget(QLabel("Cost Comparison Chart:", font=QFont("Segoe UI", 9, QFont.Bold)))
         self.aqp_chart_scene = QGraphicsScene()
-        from PySide6.QtWidgets import QGraphicsView
-        from PySide6.QtGui import QPainter
         self.aqp_chart_view = QGraphicsView(self.aqp_chart_scene)
         self.aqp_chart_view.setRenderHint(QPainter.RenderHint.Antialiasing)
         aqp_layout.addWidget(self.aqp_chart_view, 1)
@@ -181,7 +175,6 @@ class MainWindow(QMainWindow):
         self.qep_tree_widget.setHeaderLabels(["Operator", "Detail", "Cost", "Rows"])
         self.qep_tree_widget.setColumnWidth(0, 200)
         self.qep_tree_widget.setColumnWidth(1, 250)
-        self.qep_tree_widget.currentItemChanged.connect(self._on_tree_item_selected)
         self.right_tabs.addTab(self.qep_tree_widget, "QEP Tree")
 
         # Tab: QEP Text
@@ -282,7 +275,6 @@ class MainWindow(QMainWindow):
         self.btn_theme.setText("\u263E Dark Mode" if not is_dark else "\u2600 Light Mode")
 
         self._sql_highlighter.set_dark(is_dark)
-        self.settings_panel.apply_theme()
         self.chat_panel.apply_theme()
 
         # Re-polish status pills so QSS property selectors re-apply
@@ -326,7 +318,8 @@ class MainWindow(QMainWindow):
         try:
             result = generate_annotations(conn, sql, use_llm=self.chk_llm.isChecked())
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Analysis failed:\n{e}")
+            msg = " ".join(str(e).split())
+            QMessageBox.critical(self, "Error", f"Analysis failed:\n\n{msg}")
             self.statusBar().showMessage("Analysis failed")
             self.btn_run.setEnabled(True)
             return
@@ -342,7 +335,7 @@ class MainWindow(QMainWindow):
 
         # Populate all views
         self._display_annotated_query(sql, result["annotations"], self.chk_llm.isChecked())
-        self._display_qep_tree(result["qep"]["json"], result["annotations"])
+        self._display_qep_tree(result["qep"]["json"])
         self._display_qep_visual(result["qep"]["json"], result["annotations"])
         self.qep_text_display.setPlainText(result["qep"]["text"])
         self.qep_json_display.setPlainText(json.dumps(result["qep"]["json"], indent=2))
@@ -370,7 +363,6 @@ class MainWindow(QMainWindow):
     # ==================================================================
     def _display_annotated_query(self, sql, annotations, show_llm=True):
         self.annotated_display.clear()
-        self._annotation_char_ranges = []
         cursor = self.annotated_display.textCursor()
         t = self.theme
 
@@ -475,7 +467,6 @@ class MainWindow(QMainWindow):
 
             cursor.insertText("\n", sql_fmt)
             char_offset += 1
-            self._annotation_char_ranges.append((display_start, char_offset, ann_idx))
             pos = ann["end"]
             color_idx += 1
 
@@ -487,14 +478,12 @@ class MainWindow(QMainWindow):
     # ==================================================================
     # QEP Tree (list view)
     # ==================================================================
-    def _display_qep_tree(self, qep_json, annotations):
+    def _display_qep_tree(self, qep_json):
         self.qep_tree_widget.clear()
-        self._tree_items_by_relation = {}
-        self._annotation_to_tree_items = {}
-        self._add_tree_node(None, get_root_plan(qep_json), annotations)
+        self._add_tree_node(None, get_root_plan(qep_json))
         self.qep_tree_widget.expandAll()
 
-    def _add_tree_node(self, parent_item, plan_node, annotations):
+    def _add_tree_node(self, parent_item, plan_node):
         node_type = plan_node.get("Node Type", "Unknown")
         detail_parts = []
         if plan_node.get("Relation Name"):
@@ -517,20 +506,8 @@ class MainWindow(QMainWindow):
         cols = [node_type, " ".join(detail_parts), cost, rows]
         item = QTreeWidgetItem(self.qep_tree_widget if parent_item is None else parent_item, cols)
 
-        rel = plan_node.get("Relation Name", "")
-        if rel:
-            self._tree_items_by_relation[rel.lower()] = item
-        for ann_idx, ann in enumerate(annotations):
-            matched = rel and rel.lower() in ann.get("sql_text", "").lower()
-            for key in ("Hash Cond", "Merge Cond", "Join Filter"):
-                if plan_node.get(key) and ann.get("clause") in ("WHERE", "ON"):
-                    matched = True
-            if matched:
-                self._annotation_to_tree_items.setdefault(ann_idx, []).append(item)
-        item.setData(0, Qt.ItemDataRole.UserRole, id(item))
-
         for child in plan_node.get("Plans", []):
-            self._add_tree_node(item, child, annotations)
+            self._add_tree_node(item, child)
 
     # ==================================================================
     # Visual QEP Diagram
@@ -601,9 +578,6 @@ class MainWindow(QMainWindow):
                 return idx
         return -1
 
-    def _on_tree_item_selected(self, current, previous):
-        pass
-
     # ==================================================================
     # AQP chart + table
     # ==================================================================
@@ -667,10 +641,6 @@ class MainWindow(QMainWindow):
 def launch_gui():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    # Pre-apply theme so QSS is active before widgets instantiate
-    from modules.themes import ThemeManager
-    _bootstrap_theme = ThemeManager()
-    _bootstrap_theme.apply_initial()
 
     window = MainWindow()
     window.theme.apply_initial()

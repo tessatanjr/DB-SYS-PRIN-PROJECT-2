@@ -14,15 +14,11 @@ def connect_db(config=DB_CONFIG):
     """
     Establishes a connection to the PostgreSQL database.
     Returns a connection object.
+    Raises psycopg2.Error with a specific message on failure.
     """
-    try:
-        conn = psycopg2.connect(**config)
-        conn.autocommit = True
-        print("Connected to database successfully.")
-        return conn
-    except Exception as e:
-        print(f"Failed to connect to database: {e}")
-        return None
+    conn = psycopg2.connect(**config)
+    conn.autocommit = True
+    return conn
 
 def get_qep(conn, sql_query):
     """
@@ -35,22 +31,17 @@ def get_qep(conn, sql_query):
     }
     """
 
-    try:
-        with conn.cursor() as cur:
-            cur.execute(f"EXPLAIN (FORMAT JSON, VERBOSE, SETTINGS) {sql_query}")
-            qep_json = cur.fetchone()[0]
+    with conn.cursor() as cur:
+        cur.execute(f"EXPLAIN (FORMAT JSON, VERBOSE, SETTINGS) {sql_query}")
+        qep_json = cur.fetchone()[0]
 
-            cur.execute(f"EXPLAIN (FORMAT TEXT, VERBOSE, SETTINGS) {sql_query}")
-            qep_text = "\n".join(row[0] for row in cur.fetchall())
+        cur.execute(f"EXPLAIN (FORMAT TEXT, VERBOSE, SETTINGS) {sql_query}")
+        qep_text = "\n".join(row[0] for row in cur.fetchall())
 
-            return {
-                "json": qep_json,
-                "text": qep_text
-            }
-
-    except Exception as e:
-        print(f"Failed to retrieve QEP: {e}")
-        return None
+        return {
+            "json": qep_json,
+            "text": qep_text
+        }
 
 
 def get_aqp(conn, sql_query, operators_to_disable):
@@ -62,24 +53,16 @@ def get_aqp(conn, sql_query, operators_to_disable):
     
     Returns the AQP as a parsed JSON object.
     """
-    try:
-        with conn.cursor() as cur:
-            # Disable specified operators
-            for op in operators_to_disable:
-                cur.execute(f"SET {op} = off;")
-            
-            # Get the alternative plan
-            cur.execute(f"EXPLAIN (FORMAT JSON, VERBOSE, SETTINGS) {sql_query}")
-            aqp = cur.fetchone()[0]
-            
-            # Re-enable all operators (reset to default)
-            cur.execute("RESET ALL")
-            
-            return aqp
-        
-    except Exception as e:
-        print(f"Failed to retrieve AQP: {e}")
-        return None
+    with conn.cursor() as cur:
+        for op in operators_to_disable:
+            cur.execute(f"SET {op} = off;")
+
+        cur.execute(f"EXPLAIN (FORMAT JSON, VERBOSE, SETTINGS) {sql_query}")
+        aqp = cur.fetchone()[0]
+
+        cur.execute("RESET ALL")
+
+        return aqp
 
 
 def get_all_aqps(conn, sql_query):
@@ -116,11 +99,7 @@ def extract_cost(plan_json):
     Extracts the total cost from a QEP/AQP JSON object.
     The cost is found in the root node of the plan.
     """
-    try:
-        return plan_json[0]["Plan"]["Total Cost"]
-    except Exception as e:
-        print(f"Failed to extract cost: {e}")
-        return None
+    return plan_json[0]["Plan"]["Total Cost"]
 
 
 def close_db(conn):
