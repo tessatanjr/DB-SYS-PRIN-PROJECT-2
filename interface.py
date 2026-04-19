@@ -39,6 +39,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self.settings_panel.connect_db()
+        self.settings_panel.connect_llm()
 
     # ==================================================================
     # UI Construction
@@ -95,8 +96,8 @@ class MainWindow(QMainWindow):
         example_row.addWidget(QLabel("Examples:"))
         self.query_combo = QComboBox()
         self.query_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        for label, _ in EXAMPLE_QUERIES:
-            self.query_combo.addItem(label)
+        for label, sql in EXAMPLE_QUERIES:
+            self.query_combo.addItem(label, sql)
         self.query_combo.currentIndexChanged.connect(self._on_example_selected)
         example_row.addWidget(self.query_combo, 1)
         left_layout.addLayout(example_row)
@@ -301,8 +302,9 @@ class MainWindow(QMainWindow):
     # Example queries
     # ==================================================================
     def _on_example_selected(self, index):
-        if 0 < index < len(EXAMPLE_QUERIES):
-            self.query_input.setPlainText(EXAMPLE_QUERIES[index][1])
+        sql = self.query_combo.itemData(index)
+        if sql:
+            self.query_input.setPlainText(sql)
 
     # ==================================================================
     # Core analysis
@@ -337,15 +339,6 @@ class MainWindow(QMainWindow):
 
         self._last_result = result
         self.btn_export.setEnabled(True)
-
-        # Add to query history
-        truncated = sql.replace("\n", " ")[:60]
-        if sql not in [EXAMPLE_QUERIES[i][1] for i in range(len(EXAMPLE_QUERIES))]:
-            self.query_combo.blockSignals(True)
-            self.query_combo.insertItem(1, f"History: {truncated}...", sql)
-            while self.query_combo.count() > len(EXAMPLE_QUERIES) + 20:
-                self.query_combo.removeItem(self.query_combo.count() - 1)
-            self.query_combo.blockSignals(False)
 
         # Populate all views
         self._display_annotated_query(sql, result["annotations"], self.chk_llm.isChecked())
