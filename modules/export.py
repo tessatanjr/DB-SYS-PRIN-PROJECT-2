@@ -1,14 +1,10 @@
-"""Export analysis results to text or JSON files."""
+# Export analysis results to text or JSON files
 
 import json
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 
 def export_results(parent_widget, last_result):
-    """
-    Opens a save dialog and exports the analysis result.
-    Returns the saved path, or None if cancelled.
-    """
     if not last_result:
         return None
 

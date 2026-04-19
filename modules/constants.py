@@ -1,4 +1,4 @@
-"""Shared constants used across the GUI modules."""
+# Shared constants used across the GUI modules
 
 from PySide6.QtGui import QColor
 

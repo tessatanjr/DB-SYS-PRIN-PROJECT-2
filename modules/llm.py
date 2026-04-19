@@ -1,4 +1,4 @@
-"""LLM client setup and chat functions for OpenAI, Claude, and Ollama."""
+# LLM client setup and chat functions for OpenAI, Claude, and Ollama
 
 import json
 import re
@@ -18,7 +18,9 @@ PROVIDER_PRESETS = {
                 [], False, ""),
 }
 
-# Module-level LLM config — set via set_llm_config() from the GUI
+
+
+# Module-level LLM config - set via set_llm_config() from the GUI
 _llm_config = {
     "provider": "OpenAI",
     "endpoint": PROVIDER_PRESETS["OpenAI"][0],
@@ -28,7 +30,6 @@ _llm_config = {
 
 
 def set_llm_config(provider, api_key, model, endpoint):
-    """Configure the LLM client."""
     _llm_config["provider"] = provider
     _llm_config["api_key"] = api_key
     _llm_config["model"] = model
@@ -57,8 +58,8 @@ def _get_llm_client():
     return client, model
 
 
+# Handles both OpenAI-compatible and Anthropic Foundry clients
 def _chat_completion(client, model, messages, temperature=0.4, max_tokens=1000):
-    """Chat completion supporting OpenAI-compatible and Anthropic Foundry clients."""
     if isinstance(client, AnthropicFoundry):
         system_text = ""
         claude_messages = []
@@ -80,11 +81,11 @@ def _chat_completion(client, model, messages, temperature=0.4, max_tokens=1000):
         return response.choices[0].message.content.strip()
 
 
+# Quick ping to check if the LLM is reachable
 def test_connection():
-    """Test the LLM connection. Returns True on success, raises on failure."""
     client, model = _get_llm_client()
     if not client:
-        raise Exception("Client not created — check provider, endpoint, and API key")
+        raise Exception("Client not created - check provider, endpoint, and API key")
     _chat_completion(client, model, messages=[{"role": "user", "content": "Reply with OK"}])
     return True
 

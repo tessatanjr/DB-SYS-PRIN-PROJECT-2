@@ -1,4 +1,4 @@
-"""SQL syntax highlighter with dark/light mode support."""
+# SQL syntax highlighter with dark/light mode support
 
 import re
 from PySide6.QtGui import QColor, QFont, QTextCharFormat, QSyntaxHighlighter
@@ -18,7 +18,6 @@ SQL_KEYWORDS = [
 
 
 class SqlSyntaxHighlighter(QSyntaxHighlighter):
-    """Applies SQL syntax colouring to a QPlainTextEdit. Supports dark/light."""
 
     def __init__(self, document):
         super().__init__(document)

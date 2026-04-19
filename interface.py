@@ -1,6 +1,4 @@
-"""
-Main GUI window — orchestrates all modules.
-"""
+# Main GUI window - orchestrates all modules
 
 import sys
 import json
@@ -428,7 +426,7 @@ class MainWindow(QMainWindow):
                 header = f"{i + 1}. {lines[0]}"
                 cursor.insertText(f"{header}\n", bold_fmt)
                 char_offset += len(header) + 1
-                # Remaining lines — bold label prefix if present
+                # Remaining lines - bold label prefix if present
                 for line in lines[1:]:
                     # Detect label prefixes like "Filter applied:", "Alternatives:", "Cost:"
                     colon_pos = line.find(":")

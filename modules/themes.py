@@ -1,13 +1,4 @@
-"""
-Theme management for dark and light modes.
-
-Centralises palette definitions, QSS stylesheet generation, and
-theme-aware colour getters used by other GUI modules.
-
-Aesthetic direction: refined technical (JetBrains Fleet / Linear
-inspired). Layered graphite darks, warm paper lights, a single
-electric-mint accent, and crisp 1px borders instead of shadows.
-"""
+# Theme management - dark/light palettes, QSS generation, and colour getters
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QColor, QPalette, QFontDatabase
@@ -98,7 +89,6 @@ def ui_family():
 # ---------------------------------------------------------------------------
 
 class ThemeManager:
-    """Manages dark/light theme state and emits theme-aware values."""
 
     def __init__(self):
         self.is_dark = True
@@ -362,7 +352,7 @@ class ThemeManager:
         }}
         """
 
-    # -- colour getters (preserved API) --------------------------------
+    # Colour getters used by other modules
     def sql_color(self):          return self.qcolor("text")
     def header_fg(self):          return self.qcolor("text_dim")
     def header_bg(self):          return self.qcolor("bg_elev")

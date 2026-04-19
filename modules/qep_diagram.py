@@ -74,8 +74,8 @@ class QepNodeItem(QGraphicsRectItem):
         cost_item.setBrush(QBrush(QColor(100, 100, 100)))
         cost_item.setPos(4, 35)
 
+    # Build rich-text tooltip with plan node details + annotation
     def _build_tooltip(self):
-        """Build a rich-text tooltip showing plan node details + annotation."""
         plan = self.plan_node or {}
         node_type = plan.get("Node Type", "")
         cost = plan.get("Total Cost", 0)
@@ -175,8 +175,8 @@ class QepNodeItem(QGraphicsRectItem):
             scene._active_popup = popup
 
 
+# Persistent tooltip popup with a close button
 class _NodePopup(QWidget):
-    """Persistent tooltip popup with a close button."""
 
     def __init__(self, html_content):
         super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
@@ -231,7 +231,7 @@ class _NodePopup(QWidget):
         handle_layout.addWidget(close_btn)
         layout.addWidget(handle)
 
-        # Content — resizable vertically
+        # Content - resizable vertically
         content = QTextEdit()
         content.setReadOnly(True)
         content.setHtml(html_content)

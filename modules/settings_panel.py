@@ -1,4 +1,4 @@
-"""Settings panel — database connection and LLM configuration."""
+# Settings panel - database connection and LLM configuration
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
@@ -12,7 +12,6 @@ from modules.llm import set_llm_config, test_connection, PROVIDER_PRESETS
 
 
 class SettingsPanel(QWidget):
-    """Collapsible panel containing DB and LLM connection settings."""
 
     def __init__(self, theme_manager, parent=None):
         super().__init__(parent)
@@ -69,7 +68,7 @@ class SettingsPanel(QWidget):
             col, _ = _field_column(label, widget)
             db_row.addLayout(col, stretch)
 
-        # Button column — align with input row (empty spacer label on top)
+        # Button column - align with input row (empty spacer label on top)
         btn_col = QVBoxLayout()
         btn_col.setContentsMargins(0, 0, 0, 0)
         btn_col.setSpacing(2)
@@ -138,7 +137,6 @@ class SettingsPanel(QWidget):
         layout.addWidget(self.llm_group)
 
     def _on_provider_changed(self, provider_text):
-        """Auto-fill endpoint and model defaults when provider changes."""
         preset = PROVIDER_PRESETS.get(provider_text)
         if not preset:
             return

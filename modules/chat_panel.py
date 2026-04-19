@@ -1,4 +1,4 @@
-"""Chat panel widget — AI Q&A with preset questions."""
+# Chat panel widget - AI Q&A with preset questions
 
 import re
 from PySide6.QtWidgets import (
@@ -11,8 +11,8 @@ from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
 from modules.llm import llm_chat
 
 
+# Convert basic markdown (headers, bullets, bold/italic/code) to HTML
 def _md_to_html(text):
-    """Lightweight markdown-to-HTML for common LLM output patterns."""
     import html as _html
     lines = text.split("\n")
     out = []
@@ -27,7 +27,7 @@ def _md_to_html(text):
                        f'margin-top:8px; margin-bottom:4px;">'
                        f'{_inline_fmt(_html.escape(m.group(2)))}</p>')
             continue
-        # Bullet / numbered list — render as indented paragraph with bullet char
+        # Bullet / numbered list - render as indented paragraph with bullet char
         bm = re.match(r"^[-*]\s+(.+)$", stripped)
         nm = re.match(r"^(\d+)\.\s+(.+)$", stripped) if not bm else None
         if bm:
@@ -40,7 +40,7 @@ def _md_to_html(text):
             out.append(f"<p style='margin:1px 0; margin-left:16px;'>"
                        f"{nm.group(1)}. {_inline_fmt(_html.escape(item))}</p>")
             continue
-        # Empty line — skip (paragraph margins handle spacing)
+        # Empty line - skip (paragraph margins handle spacing)
         if not stripped:
             continue
         # Normal paragraph
@@ -49,7 +49,6 @@ def _md_to_html(text):
 
 
 def _inline_fmt(text):
-    """Apply inline markdown: **bold**, *italic*, `code`."""
     text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
     text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text)
     text = re.sub(r"`(.+?)`", r"<code style='background:rgba(128,128,128,0.15); "
@@ -66,7 +65,6 @@ CHAT_PRESETS = [
 
 
 class ChatPanel(QWidget):
-    """Self-contained chat panel widget for the Ask AI tab."""
 
     def __init__(self, theme_manager, parent=None):
         super().__init__(parent)
@@ -161,13 +159,11 @@ class ChatPanel(QWidget):
     # Public API
     # ------------------------------------------------------------------
     def set_result(self, result):
-        """Set the analysis result for chat context. Clears history."""
         self._last_result = result
         self._chat_history = []
         self._set_welcome_message()
 
     def set_status_callback(self, callback):
-        """Set a callback(str) for status bar messages."""
         self._status_callback = callback
 
     def clear_chat(self):
@@ -180,7 +176,6 @@ class ChatPanel(QWidget):
         self._welcome_widget.setVisible(True)
 
     def apply_theme(self):
-        """Update all theme-dependent styles."""
         self.preset_label.setStyleSheet(self.theme.preset_label_style())
         style = self.theme.preset_button_style()
         for btn in self.preset_buttons:
@@ -188,7 +183,6 @@ class ChatPanel(QWidget):
         self.rerender_history()
 
     def rerender_history(self):
-        """Re-render all chat messages with current theme colours."""
         if not self._chat_history:
             return
         self.chat_display.clear()

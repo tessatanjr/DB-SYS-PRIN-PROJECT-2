@@ -8,11 +8,8 @@ from modules.llm import llm_enhance_annotations
 # 1. QEP Tree Parsing
 # ---------------------------------------------------------------------------
 
+# Flatten the nested plan tree into a flat list with depth tracking
 def flatten_plan_tree(plan_node, depth=0):
-    """
-    Recursively flattens the QEP/AQP plan tree into a list of node dicts.
-    Each dict includes the depth for hierarchy tracking.
-    """
     node = dict(plan_node)
     node["Depth"] = depth
     children = node.pop("Plans", [])
@@ -23,7 +20,6 @@ def flatten_plan_tree(plan_node, depth=0):
 
 
 def get_root_plan(plan_json):
-    """Extracts the root Plan node from EXPLAIN JSON output."""
     return plan_json[0]["Plan"]
 
 
@@ -97,7 +93,6 @@ AGG_FRIENDLY_NAME = {
 
 
 def classify_node(node_type):
-    """Returns a category string for a given plan node type."""
     if node_type in SCAN_TYPES:
         return "scan"
     if node_type in JOIN_TYPES:
@@ -114,8 +109,9 @@ def classify_node(node_type):
 # ---------------------------------------------------------------------------
 # 3. Extract Interesting Operators from Plan
 # ---------------------------------------------------------------------------
+
+# Collect index names/conditions from Bitmap Index Scan children
 def _extract_bitmap_info(node):
-    """Recursively collect index names and conditions from Bitmap Index Scan children."""
     indexes = []
     conditions = []
 
@@ -130,20 +126,8 @@ def _extract_bitmap_info(node):
 
     return indexes, conditions
 
+# Walk the QEP tree and categorise operators into scans, joins, aggregates, sorts, etc.
 def extract_operators(plan_json):
-    """
-    Walks the QEP tree and returns categorised operator info.
-
-    Returns a dict:
-    {
-        "scans":      [{ "node_type", "relation", "alias", "filter", "cost", ... }],
-        "joins":      [{ "node_type", "join_type", "condition", "cost", "tables", ... }],
-        "aggregates": [{ "node_type", "strategy", "group_key", "cost", ... }],
-        "sorts":      [{ "node_type", "sort_key", "cost", ... }],
-        "other":      [{ "node_type", "cost", ... }],
-        "total_cost": float,
-    }
-    """
     root = get_root_plan(plan_json)
     nodes = flatten_plan_tree(root)
 
@@ -231,8 +215,8 @@ def extract_operators(plan_json):
     }
 
 
+# Get all table names under a join node
 def _collect_child_relations(node):
-    """Recursively collect relation names from scan nodes beneath a join."""
     relations = []
     for child in node.get("Plans", []):
         if child.get("Relation Name"):
@@ -242,30 +226,11 @@ def _collect_child_relations(node):
 
 
 # ---------------------------------------------------------------------------
-# 4. AQP Cost Comparison  (the "WHY" logic)
+# 4. AQP Cost Comparison (the "WHY" logic)
 # ---------------------------------------------------------------------------
 
+# Compare QEP cost against each AQP to see how much worse alternatives are
 def compare_aqp_costs(qep_cost, aqps):
-    """
-    Compares the QEP total cost against every AQP.
-
-    Parameters
-    ----------
-    qep_cost : float
-    aqps     : dict  {disabled_ops_str: aqp_json, ...}
-
-    Returns a list of dicts:
-    [
-        {
-            "disabled":     "enable_hashjoin",
-            "aqp_cost":     1234.5,
-            "cost_ratio":   2.3,       # aqp_cost / qep_cost
-            "operator_name": "Hash Join",
-        },
-        ...
-    ]
-    sorted by cost_ratio ascending.
-    """
     comparisons = []
     for disabled_str, aqp_json in aqps.items():
         aqp_cost = extract_cost(aqp_json)
@@ -292,8 +257,8 @@ def compare_aqp_costs(qep_cost, aqps):
 # 5. Annotation Generation
 # ---------------------------------------------------------------------------
 
+# Build annotation text for a scan operator
 def _format_scan_annotation(scan, aqp_comparisons):
-    """Generate annotation text for a single scan operator."""
     relation = scan["relation"]
     alias = scan["alias"]
     node_type = scan["node_type"]
@@ -375,7 +340,7 @@ def _format_scan_annotation(scan, aqp_comparisons):
             elif alt["cost_ratio"] > 1:
                 alt_parts.append(
                     f"disabling {alt_name} increases cost by "
-                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f}) — similar cost"
+                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f}) - similar cost"
                 )
             else:
                 alt_parts.append(
@@ -391,8 +356,8 @@ def _format_scan_annotation(scan, aqp_comparisons):
 
     return "\n".join(lines)
 
+# Build annotation text for a join operator
 def _format_join_annotation(join, qep_cost, aqp_comparisons):
-    """Generate annotation text for a single join operator."""
     node_type = join["node_type"]
     join_type = join["join_type"]
     condition = join["condition"]
@@ -449,7 +414,7 @@ def _format_join_annotation(join, qep_cost, aqp_comparisons):
             elif alt["cost_ratio"] > 1:
                 alt_parts.append(
                     f"{description} increases cost by "
-                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f}) — similar cost"
+                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f}) - similar cost"
                 )
             else:
                 alt_parts.append(
@@ -462,8 +427,8 @@ def _format_join_annotation(join, qep_cost, aqp_comparisons):
     return "\n".join(lines)
 
 
+# Build annotation text for an aggregate operator
 def _format_aggregate_annotation(agg, aqp_comparisons):
-    """Generate annotation text for an aggregate operator."""
     strategy = agg["strategy"]
     group_key = agg["group_key"]
     node_type = agg["node_type"]
@@ -502,7 +467,7 @@ def _format_aggregate_annotation(agg, aqp_comparisons):
             elif alt["cost_ratio"] > 1:
                 alt_parts.append(
                     f"disabling {alt_name} increases cost by "
-                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f}) — similar cost"
+                    f"~{alt['cost_ratio']}x (cost {alt['aqp_cost']:.1f}) - similar cost"
                 )
             else:
                 alt_parts.append(
@@ -516,7 +481,6 @@ def _format_aggregate_annotation(agg, aqp_comparisons):
 
 
 def _format_sort_annotation(sort):
-    """Generate annotation text for a sort operator."""
     keys = sort["sort_key"]
     keys_str = ", ".join(str(k) for k in keys) if keys else "unspecified keys"
     return f"Results are sorted by ({keys_str}) using {sort['node_type'].lower()}."
@@ -530,12 +494,8 @@ def _format_limit_annotation(node):
 # 6. SQL ↔ Annotation Mapping
 # ---------------------------------------------------------------------------
 
+# Split a SQL string into clause regions (SELECT, FROM, WHERE, etc.) with positions
 def _parse_sql_clauses(sql):
-    """
-    Roughly splits an SQL query into clause regions.
-    Returns a list of (clause_name, start_pos, end_pos) tuples.
-    """
-    # Normalise whitespace for matching but keep original positions
     upper = sql.upper()
 
     clause_keywords = [
@@ -573,22 +533,8 @@ def _parse_sql_clauses(sql):
     return clauses
 
 
+# Match each operator's annotation to the relevant SQL clause by position
 def map_annotations_to_sql(sql, operators, qep_cost, aqp_comparisons):
-    """
-    Maps annotation strings to positions/clauses in the SQL query.
-
-    Returns a list of dicts:
-    [
-        {
-            "clause":      "FROM",
-            "start":       12,
-            "end":         45,
-            "sql_text":    "from customer C, orders O",
-            "annotations": ["Table \"customer\" is read using sequential scan. ..."],
-        },
-        ...
-    ]
-    """
     clauses = _parse_sql_clauses(sql)
     sql_lower = sql.lower()
 
@@ -665,9 +611,8 @@ def map_annotations_to_sql(sql, operators, qep_cost, aqp_comparisons):
     return result
 
 
+# Check if any column names from a join condition appear in a clause
 def _condition_in_clause(condition, clause_lower):
-    """Check if column names from a join condition appear in a clause."""
-    # Extract column-like tokens from the condition
     tokens = re.findall(r'[a-zA-Z_][a-zA-Z0-9_.]*', condition)
     return any(t.lower() in clause_lower for t in tokens)
 
@@ -676,28 +621,8 @@ def _condition_in_clause(condition, clause_lower):
 # 7. Main Entry Point
 # ---------------------------------------------------------------------------
 
+# Main entry point: get the QEP, generate AQPs, build annotations, optionally enhance with LLM
 def generate_annotations(conn, sql_query, use_llm=True):
-    """
-    Main function: takes a DB connection and SQL query string,
-    returns structured annotations.
-
-    Parameters
-    ----------
-    conn       : psycopg2 connection
-    sql_query  : str
-    use_llm    : bool — if True, attempt to enhance annotations via LLM
-
-    Returns
-    -------
-    dict with keys:
-        "sql":          original SQL query
-        "qep":          QEP dict (json + text)
-        "operators":    extracted operator info
-        "aqp_comparisons": cost comparison list
-        "annotations":  list of clause-level annotations
-        "total_cost":   QEP total cost
-        "llm_used":     bool — whether LLM enhancement was applied
-    """
     # 1. Get QEP
     qep = get_qep(conn, sql_query)
 
